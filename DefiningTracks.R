@@ -4,25 +4,26 @@
 # We rely heavily on amt getting started vignette here:       #
 # https://cran.r-project.org/web/packages/amt/vignettes/p1_getting_started.html#
 #                                                               #
-# Data are prairie falcon locations collected during Spring/Summer #
+# Data are Prairie Falcon locations collected during Spring/Summer #
 # of 2021 at Morley Nelson Birds of Prey NCA.                      #
 # Data were collected for multiple individuals and at #
 # different frequencies including 2 sec intervals when the individuals#
-# were moving (every 2-3 days), and 4hr fixes otherwise to define #
-# breeding season home range. # Movements also shifted to migration#
-# collection after individuals left their breeding grounds. #
+# were moving (every 2-3 days), and 30min? fixes otherwise to define #
+# breeding season home range. # Frequency shifted to hourly once #
+# individuals left their breeding grounds. #
 #################################################################
 
-################## prep workspace ###############################
+################## Prep. workspace ###############################
 
 # Install new packages from "CRAN" repository if you don't have them. # 
 install.packages( "tidyverse" ) #actually a collection of packages 
 install.packages( "sp" )
 install.packages( "amt" )
 install.packages( "sf" )
+
 # load packages relevant to this script:
 library( sp )
-library( tidyverse ) #easy data manipulation
+library( tidyverse ) #easy data manipulation and plotting
 library( amt ) #creating tracks from location data
 library( sf ) #handling spatial data
 ## end of package load ###############
@@ -39,37 +40,48 @@ getwd()
 workdir <- getwd()
 
 # set path to where you can access your data #
-# Note that the path will be different in yours than mine.#
+# Note that the path will be different for your.#
 datapath <- "Z:/Common/PrairieFalcons/"
 
 #import GPS data# 
-# records are stored as separate CSV files for each individual
-## We therefore create a function that imports multiple files:
+# Fixes are stored as separate CSV files for each individual
+## We therefore create a function that imports multiple files at once:
 load_data <- function( path ){
+  # extract all file names in the folder
   myfiles <- dir( path, pattern = '\\.csv', full.names = TRUE )
   for( i in 1:length(myfiles) ){
-    mydata <- read.csv( file = myfiles[i], strip.white =TRUE, #removes white spaces  
+    mydata <- read.csv( file = myfiles[i], 
+              #remove white spaces  
+              strip.white =TRUE, 
+              #include column headers
               header = TRUE, 
+              # read the serial column as a character instead of number:
               colClasses = c("serial" = "character") ) 
+  # create df for first file and append rows for other files
    ifelse( i == 1,
            df <- mydata, 
            df <- bind_rows(df, mydata) )
   } 
+  #return df for all individuals
   return( df )
 }
 
 #apply function to import all files as list of databases:
 dataraw <- load_data( paste0(datapath, 'allindvs/') )
+#Note that the files are all in a subdirectory
 
-#import trapping records with details of when radiotrackers were 
+# Import trapping records with details of when radiotrackers were 
 # fitted to the individuals
 records <- read.csv( file = paste0( datapath,"survey_0.csv" ),
-                     #replaces those values with NA, includes column heading
-                     na.strings = c(""," ","NA"), header = TRUE )
+                     #replaces those values with NA
+                     na.strings = c(""," ","NA"), 
+                     # include column headings
+                     header = TRUE )
+#check
 head( records ); dim( records )
 
-#import polygon of the NCA
-NCA_Shape <- st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
+#import polygon of the NCA as sf spatial file:
+NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
 ##############
 
 #######################################################################
@@ -85,61 +97,64 @@ records
 #convert date to correct format using lubridate
 records$StartDate <- lubridate::mdy_hms( records$Date.and.Time, 
                                     tz = "MST")
-#add a day so that we can ignore records from the trapping day #
+# Add a day so that we can ignore records from the trapping day #
 # and start only with  those from the following day:
 records$StartDate <- records$StartDate + lubridate::days(1)
 #convert to day of year
 records$StartDay <- lubridate::yday( records$StartDate )
 #unit IDs were missing starting number of their serial number #
-# we append those so we can match it to our GPS data
+# we append those so we can match it to the GPS serial IDs:
 records$serial <- paste0( '894608001201',records$Telemetry.Unit.ID )
 
 ###################################################################
-# Now we clean GPS data
+# Clean GPS data
 # GPS units often provide information on the quality of the fixes they #
 # obtained.#
-# These units from Cellular track technologies give us HDOP, VDOP and #
+# The units from Cellular track technologies provide HDOP, VDOP and #
 # time to fix information # 
-# Start by viewing what those look like in our dataset #
+# Start by viewing what those look like in the dataset #
 
 hist( dataraw$vdop, breaks = 50 )
 hist( dataraw$hdop, breaks = 50 )
 hist( dataraw$time_to_fix )
 
-# Remove 2D fixes and fixes where HDOP or VDOP ≥10 #
-# (D’eon and Delparte, 2005; Poessel et al., 2016).#
-# Also those where time to fix > 20min or with 0 satellites
+# Remove 2D fixes and fixes where HDOP or VDOP ≥10 following #
+# D’eon and Delparte (2005); Poessel et al. (2016).#
+# Also those where time to fix > 20min or with 0 satellites:
 
-#start by creating a new dataframe 
+#start by creating a new dataframe to store cleaned location records:
 datadf <- dataraw 
-#which columns do we have
+#which columns do we have?
 colnames( datadf )
-# Filter to remove inaccurate locations 
-#remove some superfluous columns
+# Filter to remove inaccurate locations and
 datadf <- datadf %>% dplyr::filter( hdop < 10 ) %>%
   dplyr::filter( vdop < 10 ) %>%
   dplyr::filter( time_to_fix <= 20 ) %>% 
   dplyr::filter( nsats > 0 ) %>%
   dplyr::filter( lat > 0 ) %>% 
-  dplyr::select( -inactivity, -geo, -data_voltage, -solar_current, -solar_charge )
+  #remove superfluous columns
+  dplyr::select( -inactivity, -geo, -data_voltage, -solar_current, 
+                 -solar_charge )
 
 #view
 head( datadf ); dim( datadf )
 #How many rows did we remove?
 # Answer: 
+#
 dim( dataraw ) - dim( datadf )
 # What % of data did we loose?
 # Answer:
 # 
 # We also need to set a time column containing date and time information #
-# in POSIX format
-# We rely on lubridate for this. If you haven't use lubridate before #
+# in POSIX format (as required by amt)#
+# We rely on lubridate for this. If you haven't used lubridate before #
 # go here: https://cran.r-project.org/web/packages/lubridate/vignettes/lubridate.html
 # to learn more about how to easily manipulate time and dates in R #
-# Data are stored in year,month,day,hour,minute, second format. 
-# We define correct format with lubridate and convert it to posixct
+# Data are stored in year, month, day, hour, minute, second format in our data. 
+# We define correct format with lubridate 
 datadf$date <- lubridate::ymd_hms( datadf$GPS_YYYY.MM.DD_HH.MM.SS,
               tz = "MST" )
+# and create new column where we convert it to posixct
 datadf$ts <- as.POSIXct( datadf$date )
 #view
 head( datadf ); dim( datadf )
@@ -155,24 +170,25 @@ datadf <- datadf %>%
 
 # We need to remove records for fixes that were recorded before the #
 # units were fitted to the animals so we append relevant information #
-# from the records dataframe
+# from the records dataframe. We do that by combining datadf to records df#
 datadf <- records %>%  dplyr::select( serial, Sex, StartDay ) %>% 
   right_join( datadf, by = "serial" )
 #view
 head( datadf ); dim( datadf )
-#filter records to remove those early ones
+#Then using StartDay to filter records, removing those that occured earlier.#
+# when unit was turned on but not fitted to animal. 
 datadf <- datadf %>% 
   group_by( serial ) %>% 
-  filter( jday > StartDay ) %>% ungroup()
+  dplyr::filter( jday > StartDay ) %>% ungroup()
 #view
 head( datadf ); dim( datadf )
-# Our individual IDs are cumbersome so we create a new id column
+# serial IDs are cumbersome so we create a new individual ID column:
 datadf$id <- group_indices( datadf, serial )
 
-### Defining coordinate system and projection for the data ######
-# location data were recorded using WGS 84  in lat long #
+### Define coordinate system and projection for the data ######
+# location data were recorded using WGS84 in lat long #
 # We use the epsg code to define coordinate system for our sites #
-# How? Google epsg WGS 84 # First result should  take you here: #
+# How? Google epsg WGS84 # First result should  take you here: #
 # https://spatialreference.org/ref/epsg/wgs-84/ 
 # where you can find that epgs = 4326 for this coordinate system #
 # If you are not familiar with geographic data, vector, rasters & #
@@ -185,6 +201,7 @@ crsdata <- sp::CRS( "+init=epsg:4326" )
 # We also want to transform the lat longs to easting and northings #
 # using UTM. For this we need to know what zone we are in. Go: #
 # http://www.dmap.co.uk/utmworld.htm
+# We choose zone 11:
 crstracks <- sp::CRS( "+proj=utm +zone=11" )
 #We convert the NCA shapefile to the same projection as our tracks
 NCA_Shape <- sf::st_transform( NCA_Shape, crstracks )
@@ -201,6 +218,129 @@ ggplot( datadf, aes( x = jday, group = id ) ) +
 # Sample size, intensity for different individuals? #
 # Answer:
 #
+
+#######################################################################
+###### Creating tracks, calculating step lengths and turning angles ###
+####              for all individuals at the same time:           #####
+########################################################################
+#amt requires us to turn data into tracks for further analyses.
+trks <- datadf %>% 
+  #make track. Note you can add additional columns to it
+  amt::make_track(.y = lat, .x = lon, .t = ts, 
+                  #define columns that you want to keep, relabel if you need:
+                  id = id, sex = Sex, mth = mth,jday = jday, speed = speed, alt = alt, 
+                  #assign correct crs
+                  crs = crsdata )
+
+# Reproject to UTM to convert lat lon to easting northing:
+trks <- amt::transform_coords( trks, crstracks )
+#Turn into a tibble list by groupping and nest by individual IDs:
+trks <- trks %>%  amt::nest( data = -"id" )
+#view
+trks
+
+# Remember we have multiple types of data including detailed data for flights #
+# 3 times a week, 30min fixes during the day, then hourly fixes during #
+# migration. We start by focusing on data during breeding season. #
+# That means we need to remove migration locations.
+# How do we know when individuals started migrating North?
+# We plot overall paths for each individual:
+for( i in 1:dim(trks)[1]){
+  a <- as_sf_points( trks$data[[i]] ) %>% 
+    ggplot(.) + theme_bw(base_size = 17) +
+    labs( title = paste0('individual =', trks$id[i]) ) +
+    geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
+    geom_sf() 
+  print(a)
+} 
+# Which ones have migration paths?
+# Answer:
+#
+# Any ideas on how to remove migration data?
+# Answer:
+# 
+# Here we rely on NCA polygon, removing records that exist East of the #
+# NCA. 
+NCA_Shape
+# What is the Eastern-most coordinate? 
+xmax <- 627081.5
+#subset those tracks less than as breeding and those > as migrating:
+trks <- trks %>% mutate(
+  breeding = map( data, ~ filter(., x_ < xmax ) ),
+  migrating = map( data, ~ filter(., x_ >= xmax ) ) )
+
+#view
+trks
+
+# Plot step lengths
+for( i in 1:dim(trks)[1]){
+  #a <-  steps( trks$breeding[[i]] ) %>% 
+  a <-  steps( trks$migrating[[i]] ) %>% 
+    mutate( jday = lubridate::yday( t1_ ) ) %>% 
+    group_by( jday ) %>% 
+    summarise( sl_ = log( sum(sl_) ) ) %>% 
+    ggplot(.) + theme_bw(base_size = 17) +
+    labs( title = paste0('individual =', trks$id[i]) ) +
+    geom_line( aes( y = sl_, x = jday))
+  print(a)
+}
+
+# We focus on breeding season data:
+# Sampling rate for each individual by looping through 
+# the data using purrr function map
+sumtrks <- trks %>%  summarize( 
+  map( breeding, amt::summarize_sampling_rate ) )
+#view
+sumtrks[[1]]
+
+# Add steps by bursts
+trks.all <- trks %>% mutate(
+  steps = map( breeding, function(x) 
+    x %>%  track_resample( rate = seconds(5), 
+                           tolerance = seconds(5)) %>% 
+      steps_by_burst() ) )
+#view
+trks.all
+
+
+# plot autocorrelation for step lengths for all individuals
+par( mfrow = c( 2,3 ) )
+for( i in 1:dim(trks.all)[1] ){
+  #you can modify the lag.max according to your data 
+  idd <- trks.all$id[i]
+  x <- pull( trks.all[["steps"]][[i]], direction_p )
+  x <- x[!is.na(x)]
+  acf( x, lag.max = 300,
+       main = paste0("individual = ",idd ) )
+}
+# What would be a reasonable rate to resample at?
+# Answer:
+# 
+# I choose 30min
+trks.all <- trks.all %>% 
+  mutate(red = map(breeding, function(x ) x %>%  
+                     track_resample( rate = minutes(30),
+                                     tolerance = minutes(5) ) ) )
+#view
+trks.all
+
+
+# We can now unnest the dataframes of interest
+#Starting with all breeding season data
+trks.breed <- trks.all %>% select( id, breeding ) %>% 
+  unnest( cols = breeding ) 
+head( trks.comp )
+
+# Now breeding season data, without autocorrelation:
+trks.red <- trks.all %>% select( id, red ) %>% 
+  unnest( cols = red ) 
+head( trks.red )
+
+# Last all migration data:
+trks.mig <- trks.all %>% select( id, migrating ) %>% 
+  unnest( cols = migrating ) 
+head( trks.mig )
+###############
 
 ###########################################################################
 ###### Creating tracks, calculating step lengths and turning angles ######
@@ -235,7 +375,7 @@ tr.idv %>% amt::summarize_sampling_rate()
 #
 
 # Resample track to high resolution frequency so that we can add a #
-# burst_ id grouping fixes into separte paths #
+# burst_ id grouping fixes into separate paths #
 # This accounts for gaps in the data due to missing fixes or uneven sampling
 # rates #
 tr.3 <- tr.idv %>%  
@@ -249,7 +389,7 @@ tr.3 <- amt::steps_by_burst( tr.3 )
 # Answer:
 #
 # Some analyses require independence of your fix locations. #
-# Temporal autocorrelation of locations leads to underestimation of #
+# Temporal autocorrelation of locations leads to underestimation in #
 # home range size and bias in predictions of habitat selection, core area, #
 # and intensity of resource use for those methods that rely on it. #
 # We therefore need to create an additional thinned dataset that removes #
@@ -303,111 +443,16 @@ tr.slow %>%
 # Answer:
 # 
 
-#We now reduce our individual track based to match our reduced steps above 
+#Reduce individual tracks based on selected steps above 
 tr.red <- tr.slow %>% select( x_= x1_, y_=y1_, t_=t1_ ) %>% 
   left_join( tr.idv, by = c('x_', "y_", "t_" ) )
 # view
 tr.red
-# Note that the output is now a tibble. We turn it back to a track
+# Note that the output is a tibble. Turn it back to a track:
 tr.red <- tr.red %>%  
   amt::make_track(.y = y_, .x = x_, .t = t_, id = id, 
             mth = mth, jday = jday, speed = speed, alt = alt, 
             crs = crstracks )
-
-##################################################################
-#### Working with all individuals at the same time:           #####
-########################################################################
-trks <- datadf %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, 
-        #define columns that you want to keep
-        id = id, sex = Sex, mth = mth,jday = jday, speed = speed, alt = alt, 
-        #assign crs
-        crs = crsdata )
-
-# Reproject to UTM:
-trks <- amt::transform_coords( trks, crstracks )
-#Group and nest by individual IDs:
-trks <- trks %>%  amt::nest( data = -"id" )
-#view
-trks
-for( i in 1:dim(trks)[1]){
-a <-  steps( trks$data[[i]] ) %>% 
-    mutate( jday = lubridate::yday( t1_ ) ) %>% 
-    group_by( jday ) %>% 
-    summarise( sl_ = log( sum(sl_) ) ) %>% 
-    ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
-    geom_line( aes( y = sl_, x = jday))
-print(a)
-}
-
-# How do we know which individuals started migrating North?
-for( i in 1:dim(trks)[1]){
-  a <- as_sf_points( trks$data[[i]] ) %>% 
-    ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
-    geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
-    geom_sf() 
-  print(a)
-} 
-# Which ones have migration paths?
-# Answer:
-#
-# We have multiple types of data including detailed data for flights and #
-# foraging paths, constant data when they are stationary, then a shift #
-# to hourly tracking after they migrate. #
-
-# Sampling rate for each individual by looping through 
-# the data using purrr function map
-sumtrks <- trks %>%  summarize( 
-  map( data, amt::summarize_sampling_rate ) )
-#view
-sumtrks[[1]]
-
-# Add steps by bursts
-trks.all <- trks %>% mutate(
-  steps = map( data, function(x) 
-    x %>%  track_resample( rate = seconds(5), 
-    tolerance = seconds(5)) %>% 
-    steps_by_burst() ) )
-#view
-trks.all
-
-
-# plot autocorrelation for step lengths for all individuals
-par( mfrow = c( 3,3 ) )
-for( i in 1:dim(trks.all)[1] ){
-  #you can modify the lag.max according to your data 
-  idd <- trks.all$id[i]
-  x <- pull( trks.all[["steps"]][[i]], direction_p )
-  x <- x[!is.na(x)]
-  acf( x, lag.max = 300,
-       main = paste0("individual = ",idd ) )
-}
-# What would be a reasonable rate to resample at?
-# Answer:
-# 
-# I choose 25min
-trks.all <- trks.all %>% 
-  mutate(red = map(data, function(x ) x %>%  
-                     track_resample( rate = minutes(25),
-                                     tolerance = minutes(5) ) ) )
-#view
-trks.all
-
-
-
-# We can now unnest the dataframes of interest
-#Starting with the raw data:
-trks.comp <- trks.all %>% select( id, data ) %>% 
-  unnest( cols = data ) 
-head( trks.comp )
-
-# Now the reduced tracks:
-trks.red <- trks.all %>% select( id, red ) %>% 
-  unnest( cols = red ) 
-head( trks.red )
 
 #############################################################################
 # Saving relevant objects and data ---------------------------------
