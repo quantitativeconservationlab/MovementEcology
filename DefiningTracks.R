@@ -227,10 +227,10 @@ ggplot( datadf, aes( x = jday, group = id ) ) +
 trks <- datadf %>% 
   #make track. Note you can add additional columns to it
   amt::make_track(.y = lat, .x = lon, .t = ts, 
-                  #define columns that you want to keep, relabel if you need:
-                  id = id, sex = Sex, mth = mth,jday = jday, speed = speed, alt = alt, 
-                  #assign correct crs
-                  crs = crsdata )
+    #define columns that you want to keep, relabel if you need:
+    id = id, sex = Sex, mth = mth,jday = jday, speed = speed, alt = alt, 
+    #assign correct crs
+    crs = crsdata )
 
 # Reproject to UTM to convert lat lon to easting northing:
 trks <- amt::transform_coords( trks, crstracks )

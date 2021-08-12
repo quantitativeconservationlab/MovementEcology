@@ -143,6 +143,4 @@ hrarea <- hrarea %>%  mutate( hr_area = map( hr, ~hr_area(.)) ) %>%
 
 
 
-
-
 ############# end of script  ###########################################
