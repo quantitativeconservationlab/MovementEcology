@@ -24,6 +24,8 @@ install.packages( "sf" )
 # load packages relevant to this script:
 library( sp )
 library( tidyverse ) #easy data manipulation and plotting
+# set option to see all columns and more than 10 rows
+options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt ) #creating tracks from location data
 library( sf ) #handling spatial data
 ## end of package load ###############
@@ -91,7 +93,8 @@ NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSamplin
 # with transmitters.#
 colnames( records )
 # we keep transmitter id, date and sex
-records <- records %>% dplyr::select( Telemetry.Unit.ID, Sex, StartDay )
+records <- records %>% dplyr::select( Telemetry.Unit.ID, Sex, 
+                                      Date.and.Time )
 #view
 records
 #convert date to correct format using lubridate
@@ -106,6 +109,8 @@ records$StartDay <- lubridate::yday( records$StartDate )
 # we append those so we can match it to the GPS serial IDs:
 records$serial <- paste0( '894608001201',records$Telemetry.Unit.ID )
 
+#check 
+head( records); dim( records)
 ###################################################################
 # Clean GPS data
 # GPS units often provide information on the quality of the fixes they #
@@ -126,7 +131,7 @@ hist( dataraw$time_to_fix )
 datadf <- dataraw 
 #which columns do we have?
 colnames( datadf )
-# Filter to remove inaccurate locations and
+# Filter to remove inaccurate locations
 datadf <- datadf %>% dplyr::filter( hdop < 10 ) %>%
   dplyr::filter( vdop < 10 ) %>%
   dplyr::filter( time_to_fix <= 20 ) %>% 
@@ -175,8 +180,8 @@ datadf <- records %>%  dplyr::select( serial, Sex, StartDay ) %>%
   right_join( datadf, by = "serial" )
 #view
 head( datadf ); dim( datadf )
-#Then using StartDay to filter records, removing those that occured earlier.#
-# when unit was turned on but not fitted to animal. 
+# Then using StartDay to filter records, removing those that occurred#
+#  earlier when unit was turned on, but not fitted to animal #
 datadf <- datadf %>% 
   group_by( serial ) %>% 
   dplyr::filter( jday > StartDay ) %>% ungroup()
@@ -185,6 +190,7 @@ head( datadf ); dim( datadf )
 # serial IDs are cumbersome so we create a new individual ID column:
 datadf$id <- group_indices( datadf, serial )
 
+##################################################################
 ### Define coordinate system and projection for the data ######
 # location data were recorded using WGS84 in lat long #
 # We use the epsg code to define coordinate system for our sites #
@@ -205,9 +211,11 @@ crsdata <- sp::CRS( "+init=epsg:4326" )
 crstracks <- sp::CRS( "+proj=utm +zone=11" )
 #We convert the NCA shapefile to the same projection as our tracks
 NCA_Shape <- sf::st_transform( NCA_Shape, crstracks )
-# We are now ready to make tracks using atm package. We start with#
-# one individual only. But which one? We first check sample size #
+# We are now ready to make tracks using atm package
+#We first check sample size #
 table( datadf$id )
+# How many individuals have we dropped so far?
+# 
 # We can also get an idea of the data collection for each individual
 # by plotting histograms
 ggplot( datadf, aes( x = jday, group = id ) ) +
@@ -260,10 +268,10 @@ for( i in 1:dim(trks)[1]){
 # Answer:
 # 
 # Here we rely on NCA polygon, removing records that exist East of the #
-# NCA. 
-NCA_Shape
-# What is the Eastern-most coordinate? 
-xmax <- 627081.5
+# NCA. We can extra the extent of a polygon:
+sf::st_bbox(NCA_Shape)
+#Then use the Eastern-most coordinate to filter out data 
+xmax <- as.numeric(st_bbox(NCA_Shape)$xmax) #627081.5
 #subset those tracks less than as breeding and those > as migrating:
 trks <- trks %>% mutate(
   breeding = map( data, ~ filter(., x_ < xmax ) ),
@@ -271,11 +279,12 @@ trks <- trks %>% mutate(
 
 #view
 trks
-
+# Note we created two other groups of tibbles for the breeding season
+# and migrating season #
 # Plot step lengths
 for( i in 1:dim(trks)[1]){
-  #a <-  steps( trks$breeding[[i]] ) %>% 
-  a <-  steps( trks$migrating[[i]] ) %>% 
+  a <-  steps( trks$breeding[[i]] ) %>% 
+  #a <-  steps( trks$migrating[[i]] ) %>% 
     mutate( jday = lubridate::yday( t1_ ) ) %>% 
     group_by( jday ) %>% 
     summarise( sl_ = log( sum(sl_) ) ) %>% 
@@ -286,14 +295,15 @@ for( i in 1:dim(trks)[1]){
 }
 
 # We focus on breeding season data:
-# Sampling rate for each individual by looping through 
-# the data using purrr function map
+# Estimate sampling rate for each individual by looping through 
+# data using purrr function map
 sumtrks <- trks %>%  summarize( 
   map( breeding, amt::summarize_sampling_rate ) )
 #view
 sumtrks[[1]]
 
-# Add steps by bursts
+# Add tibbles with added step lengths calculated by bursts from #
+# breeding season data:
 trks.all <- trks %>% mutate(
   steps = map( breeding, function(x) 
     x %>%  track_resample( rate = seconds(5), 
@@ -306,12 +316,16 @@ trks.all
 # plot autocorrelation for step lengths for all individuals
 par( mfrow = c( 2,3 ) )
 for( i in 1:dim(trks.all)[1] ){
-  #you can modify the lag.max according to your data 
+  #extract individual ids
   idd <- trks.all$id[i]
+  #use tibbles we calculated in steps
   x <- pull( trks.all[["steps"]][[i]], direction_p )
+  #remove missing data
   x <- x[!is.na(x)]
+  #calculate autocorrelation function:
   acf( x, lag.max = 300,
-       main = paste0("individual = ",idd ) )
+       main = paste0( "individual = ",idd ) )
+  #Note you can modify the lag.max according to your data 
 }
 # What would be a reasonable rate to resample at?
 # Answer:
@@ -319,17 +333,16 @@ for( i in 1:dim(trks.all)[1] ){
 # I choose 30min
 trks.all <- trks.all %>% 
   mutate(red = map(breeding, function(x ) x %>%  
-                     track_resample( rate = minutes(30),
-                                     tolerance = minutes(5) ) ) )
+               track_resample( rate = minutes(30),
+               tolerance = minutes(5) ) ) )
 #view
 trks.all
-
 
 # We can now unnest the dataframes of interest
 #Starting with all breeding season data
 trks.breed <- trks.all %>% select( id, breeding ) %>% 
   unnest( cols = breeding ) 
-head( trks.comp )
+head( trks.breed )
 
 # Now breeding season data, without autocorrelation:
 trks.red <- trks.all %>% select( id, red ) %>% 
@@ -464,6 +477,5 @@ tr.red <- tr.red %>%
 #save workspace in case we need to make changes
 save.image( "TracksWorkspace.RData" )
 
+########## end of save #########################
 ############### END OF SCRIPT ########################################
-
-############# end of script  ###########################################
