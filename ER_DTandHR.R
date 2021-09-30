@@ -249,7 +249,7 @@ trks
 for( i in 1:dim(trks)[1]){
   a <- as_sf_points( trks$data[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$territory[i]) ) +
+    #labs( title = paste0('individual =', trks$territory[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
     geom_sf() 
   print(a)
@@ -280,9 +280,10 @@ for( i in 1:dim(trks)[1]){
     #a <-  steps( trks$migrating[[i]] ) %>% 
     mutate( jday = lubridate::yday( t1_ ) ) %>% #what is t1_?
     group_by( jday ) %>% #why group by jday?
-    summarise( sl_ = log( sum(sl_) ) ) %>% #what's happening here? sl = step lengths
+    summarise( sl_ = sum(sl_)/1000 ) %>% #what's happening here? sl = step lengths
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$territory[i]) ) +
+    labs( title = paste0('individual =', trks$territory[i]),
+          y = "Daily distance (km)", x = "Day of the year" ) +
     geom_line( aes( y = sl_, x = jday))
   print(a)
 }
@@ -293,7 +294,7 @@ for( i in 1:dim(trks)[1]){
 sumtrks <- trks %>%  summarize( 
   map( breeding, amt::summarize_sampling_rate ) )
 #view
-sumtrks[[1]] # this doesn't make much sense to me
+sumtrks[[1]] # sampling rate is seconds between fixes
 
 # Add tibbles with added step lengths calculated by bursts from #
 # breeding season data:
@@ -307,16 +308,16 @@ trks.all
 
 
 # plot autocorrelation for step lengths for all individuals
-par( mfrow = c( 2,3 ) ) # what's this?
+par( mfrow = c( 3,3 ) ) # what's this?
 for( i in 1:dim(trks.all)[1] ){
   #extract individual ids
   idd <- trks.all$territory[i]
-  #use tibbles we calculated in steps
-  x <- pull( trks.all[["steps"]][[i]], direction_p )
+  #extract step lengths for each individual
+  x <- pull( trks.all[["steps"]][[i]], sl_) #direction_p )
   #remove missing data
   x <- x[!is.na(x)]
-  #calculate autocorrelation function:
-  acf( x, lag.max = 300,
+  #calculate autocorrelation function based on step length
+  acf( x, lag.max = 600,
        main = paste0( "individual = ",idd ) )
   #Note you can modify the lag.max according to your data # lag is in minutes?
 }
@@ -333,283 +334,283 @@ trks.all <- trks.all %>%
 trks.all
 # difference between rate and tolerance?????????????????????????????????????????
 
-# We can now unnest the dataframes of interest
-#Starting with all breeding season data
-# What is nesting and unesting??????????????????????????????????????????????????
-trks.breed <- trks.all %>% select( territory, breeding ) %>% 
-  unnest( cols = breeding ) 
-head( trks.breed )
+# # We can now unnest the dataframes of interest
+# #Starting with all breeding season data
+# # What is nesting and unesting??????????????????????????????????????????????????
+# trks.breed <- trks.all %>% select( territory, breeding ) %>%
+#   unnest( cols = breeding )
+# head( trks.breed )
 
 # Now breeding season data, without autocorrelation:
 trks.red <- trks.all %>% select( territory, red ) %>% 
   unnest( cols = red ) 
 head( trks.red )
 
-# Last all migration data:
-trks.mig <- trks.all %>% select( territory, migrating ) %>% 
-  unnest( cols = migrating ) 
-head( trks.mig )
+# # Last all migration data:
+# trks.mig <- trks.all %>% select( territory, migrating ) %>% 
+#   unnest( cols = migrating ) 
+# head( trks.mig )
 ###############
-#........................................ Lost after here.......................
-
-###########################################################################
-###### Creating tracks, calculating step lengths and turning angles ######
-#                     for a single individual                             #
-######################
-# We start by creating a track for a single individual:
-tr.idv <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "SG" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvSG <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "SG" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvCRW <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "CRW" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvCRW_new <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "CRW_new" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvCFR <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "CFR" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvHHGS_US <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "HHGS_US" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvHHGS_DS <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "HHGS_DS" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvMac <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "Mac" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvPRII <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "PR_II" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-tr.idvSDTP <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( territory == "SDTP" ) %>%
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-                  jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
-                  #note that we give it the data CRS to start
-                  crs = crsdata )
-
-# create list of all individual tracks
-ind.trk_list <- list("SG" = tr.idvSG, "CRW" = tr.idvCRW, "CRW_new" = tr.idvCRW_new, "CFR" = tr.idvCFR, "HHGS_US" = tr.idvHHGS_US, "HHGS_DS" = tr.idvHHGS_DS, "Mac" = tr.idvMac, "PR_II" = tr.idvPRII, "SDTP" = tr.idvSDTP )
-
-#check it
-class( ind.trk_list ); head( ind.trk_list ); dim( ind.trk_list )
-class( tr.idv ); head( tr.idv ); dim( tr.idv )
-# A common mistake when working with spatial data is forgetting to #
-# set data to correct projection, which can introduce significant errors #
-# in your analysis #
-# Project object to UTM:
-tr.idv <- amt::transform_coords( tr.idv, crstracks )
-tr.idv
-
-tr.indvs_utm <- lapply(1:length(ind.trk_list), function (x) amt::transform_coords(ind.trk_list[[x]], crstracks))
-# crstracks <- sp::CRS( "+proj=utm +zone=11" ) 
-lapply(1:length(tr.indvs_utm), function (x) amt::get_crs(tr.indvs_utm[[x]])) # check all ind tracks have correct CRS
-
-# Why do we change it to UTM?
-# Answer: 
-#
-# We check our sampling rate:
-tr.idv %>% amt::summarize_sampling_rate()
-lapply(tr.indvs_utm, function (x) amt::summarize_sampling_rate(x))
-
-# What is it telling us? Can't remember
-# Answer:
-#
-
-# Resample track to high resolution frequency so that we can add a #
-# burst_ id grouping fixes into separate paths #
-# This accounts for gaps in the data due to missing fixes or uneven sampling
-# rates #
-tr.3 <- tr.idv %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3SG <- tr.indvs_utm[[1]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3CRW <- tr.indvs_utm[[2]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3CRW_new <- tr.indvs_utm[[3]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3CFR <- tr.indvs_utm[[4]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3HHGS_US <- tr.indvs_utm[[5]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3HHGS_DS <- tr.indvs_utm[[6]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3Mac <- tr.indvs_utm[[7]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3PRII <- tr.indvs_utm[[8]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3SDTP <- tr.indvs_utm[[9]] %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-
-# tr.resamp <- lapply(1:length(tr.indvs_utm), function (x) tr.indvs_utm [[x]] %>% amt::track_resample(rate = (5), tolerance = (5)))
-tr.3_list <- list("SG" = tr.3SG, "CRW" = tr.3CRW, "CRW_new" = tr.3CRW_new, "CFR" = tr.3CFR, "HHGS_US" = tr.3HHGS_US, "HHGS_DS" = tr.3HHGS_DS, "Mac" = tr.3Mac, "PR_II" = tr.3PRII, "SDTP" = tr.3SDTP )
-
-
-# Convert resulting track to steps, while taking into account the grouping #
-# set by bursts_:
-tr.3 <- amt::steps_by_burst( tr.3 )
-max(tr.3$burst_)
-
-tr.3_list <- lapply(1:length(tr.3_list), function (x) amt::steps_by_burst(tr.3_list[[x]]))
-#..........................................................................................
-# How many groups or bursts do we have for our individual?
-# Answer: How to check this on a list?
-#
-# Some analyses require independence of your fix locations. #
-# Temporal autocorrelation of locations leads to underestimation in #
-# home range size and bias in predictions of habitat selection, core area, #
-# and intensity of resource use for those methods that rely on it. #
-# We therefore need to create an additional thinned dataset that removes #
-# autocorrelation in step lengths and turning angles for our individual track#
-
-# Start by check autocorrelation of track based on direction and turning angles:
-acf( tr.3[,"direction_p"] )
-acf( tr.3[!is.na(tr.3[,'ta_']),'ta_'] )
-# What do these plot tell us? Not sure
-# Answer:
+# #........................................ Lost after here.......................
 # 
-# Adjust sampling rate based on results from acf plots above#
-tr.slow <- tr.idv %>%  
-  amt::track_resample( rate = minutes(1),
-                       tolerance = seconds(5) )
-# Recalculate metrics and recheck autocorrelation
-tr.slow <- steps_by_burst( tr.slow )
-acf( tr.slow[,"direction_p"] )
-acf( tr.slow[!is.na(tr.slow[,'ta_']),'ta_'] )
-# What can you see in the new plots?
-# Answer:
+# ###########################################################################
+# ###### Creating tracks, calculating step lengths and turning angles ######
+# #                     for a single individual                             #
+# ######################
+# # We start by creating a track for a single individual:
+# tr.idv <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "SG" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
 # 
-#How much data did we loose with this resampling strategy?
-tr.slow
-dim(tr.idv)[1] - dim(tr.slow)[1] 
-#Answer:
-#
-# Comment on what this means regarding sample size, etc
-# Answer:
-#
-# We can plot step lengths and turning angles for each burst by:
-tr.slow %>% 
-  ggplot(.) +
-  geom_density( aes( x = sl_, fill = as.factor(burst_)), alpha = 0.4 ) +
-  xlab("Step length" ) + 
-  #ylim( 0, 0.01 ) + xlim(0, 2000 ) +
-  theme_bw( base_size = 19 )  +
-  theme( legend.position = "none" )
-#What does the plot tell us about the step lengths traveled by the individual?
-# Answer:
-
-#Reduce individual tracks based on selected steps above 
-tr.red <- tr.slow %>% select( x_= x1_, y_=y1_, t_=t1_ ) %>% 
-  left_join( tr.idv, by = c('x_', "y_", "t_" ) )
-# view
-tr.red
-# Note that the output is a tibble. Turn it back to a track:
-tr.red <- tr.red %>%  
-  amt::make_track(.y = y_, .x = x_, .t = t_, id = id, 
-                  mth = mth, jday = jday, speed = speed, alt = alt, territory = territory,
-                  crs = crstracks )
-
-#############################################################################
-# Saving relevant objects and data ---------------------------------
-#save hourly detection dataframe with weather predictors
-# write.csv(x = det_df, 
-#           #ensure that you save it onto your datafolder
-#           file = paste0( datapath, 'stoc_det_df.csv'), 
-#           row.names = FALSE )
-#save workspace in case we need to make changes
-save.image( "ER_TracksWorkspace.RData" )
-
-########## end of save #########################
-############### END OF Tracks ########################################
+# tr.idvSG <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "SG" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# tr.idvCRW <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "CRW" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# tr.idvCRW_new <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "CRW_new" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# tr.idvCFR <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "CFR" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# tr.idvHHGS_US <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "HHGS_US" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# tr.idvHHGS_DS <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "HHGS_DS" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# tr.idvMac <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "Mac" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# tr.idvPRII <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "PR_II" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# tr.idvSDTP <- datadf %>% 
+#   #select data for one individual only
+#   dplyr::filter( territory == "SDTP" ) %>%
+#   # remove duplicate times
+#   dplyr::filter( !duplicated( ts ) ) %>% 
+#   #make track. Note you can add additional columns to it
+#   amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
+#                   jday = jday, sex = Sex, speed = speed, alt = alt, territory = territory, 
+#                   #note that we give it the data CRS to start
+#                   crs = crsdata )
+# 
+# # create list of all individual tracks
+# ind.trk_list <- list("SG" = tr.idvSG, "CRW" = tr.idvCRW, "CRW_new" = tr.idvCRW_new, "CFR" = tr.idvCFR, "HHGS_US" = tr.idvHHGS_US, "HHGS_DS" = tr.idvHHGS_DS, "Mac" = tr.idvMac, "PR_II" = tr.idvPRII, "SDTP" = tr.idvSDTP )
+# 
+# #check it
+# class( ind.trk_list ); head( ind.trk_list ); dim( ind.trk_list )
+# class( tr.idv ); head( tr.idv ); dim( tr.idv )
+# # A common mistake when working with spatial data is forgetting to #
+# # set data to correct projection, which can introduce significant errors #
+# # in your analysis #
+# # Project object to UTM:
+# tr.idv <- amt::transform_coords( tr.idv, crstracks )
+# tr.idv
+# 
+# tr.indvs_utm <- lapply(1:length(ind.trk_list), function (x) amt::transform_coords(ind.trk_list[[x]], crstracks))
+# # crstracks <- sp::CRS( "+proj=utm +zone=11" ) 
+# lapply(1:length(tr.indvs_utm), function (x) amt::get_crs(tr.indvs_utm[[x]])) # check all ind tracks have correct CRS
+# 
+# # Why do we change it to UTM?
+# # Answer: 
+# #
+# # We check our sampling rate:
+# tr.idv %>% amt::summarize_sampling_rate()
+# lapply(tr.indvs_utm, function (x) amt::summarize_sampling_rate(x))
+# 
+# # What is it telling us? Can't remember
+# # Answer:
+# #
+# 
+# # Resample track to high resolution frequency so that we can add a #
+# # burst_ id grouping fixes into separate paths #
+# # This accounts for gaps in the data due to missing fixes or uneven sampling
+# # rates #
+# tr.3 <- tr.idv %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3SG <- tr.indvs_utm[[1]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3CRW <- tr.indvs_utm[[2]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3CRW_new <- tr.indvs_utm[[3]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3CFR <- tr.indvs_utm[[4]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3HHGS_US <- tr.indvs_utm[[5]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3HHGS_DS <- tr.indvs_utm[[6]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3Mac <- tr.indvs_utm[[7]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3PRII <- tr.indvs_utm[[8]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# tr.3SDTP <- tr.indvs_utm[[9]] %>%  
+#   amt::track_resample( rate = seconds(5),
+#                        tolerance = seconds(5) )
+# 
+# # tr.resamp <- lapply(1:length(tr.indvs_utm), function (x) tr.indvs_utm [[x]] %>% amt::track_resample(rate = (5), tolerance = (5)))
+# tr.3_list <- list("SG" = tr.3SG, "CRW" = tr.3CRW, "CRW_new" = tr.3CRW_new, "CFR" = tr.3CFR, "HHGS_US" = tr.3HHGS_US, "HHGS_DS" = tr.3HHGS_DS, "Mac" = tr.3Mac, "PR_II" = tr.3PRII, "SDTP" = tr.3SDTP )
+# 
+# 
+# # Convert resulting track to steps, while taking into account the grouping #
+# # set by bursts_:
+# tr.3 <- amt::steps_by_burst( tr.3 )
+# max(tr.3$burst_)
+# 
+# tr.3_list <- lapply(1:length(tr.3_list), function (x) amt::steps_by_burst(tr.3_list[[x]]))
+# #..........................................................................................
+# # How many groups or bursts do we have for our individual?
+# # Answer: How to check this on a list?
+# #
+# # Some analyses require independence of your fix locations. #
+# # Temporal autocorrelation of locations leads to underestimation in #
+# # home range size and bias in predictions of habitat selection, core area, #
+# # and intensity of resource use for those methods that rely on it. #
+# # We therefore need to create an additional thinned dataset that removes #
+# # autocorrelation in step lengths and turning angles for our individual track#
+# 
+# # Start by check autocorrelation of track based on direction and turning angles:
+# acf( tr.3[,"direction_p"] )
+# acf( tr.3[!is.na(tr.3[,'ta_']),'ta_'] )
+# # What do these plot tell us? Not sure
+# # Answer:
+# # 
+# # Adjust sampling rate based on results from acf plots above#
+# tr.slow <- tr.idv %>%  
+#   amt::track_resample( rate = minutes(1),
+#                        tolerance = seconds(5) )
+# # Recalculate metrics and recheck autocorrelation
+# tr.slow <- steps_by_burst( tr.slow )
+# acf( tr.slow[,"direction_p"] )
+# acf( tr.slow[!is.na(tr.slow[,'ta_']),'ta_'] )
+# # What can you see in the new plots?
+# # Answer:
+# # 
+# #How much data did we loose with this resampling strategy?
+# tr.slow
+# dim(tr.idv)[1] - dim(tr.slow)[1] 
+# #Answer:
+# #
+# # Comment on what this means regarding sample size, etc
+# # Answer:
+# #
+# # We can plot step lengths and turning angles for each burst by:
+# tr.slow %>% 
+#   ggplot(.) +
+#   geom_density( aes( x = sl_, fill = as.factor(burst_)), alpha = 0.4 ) +
+#   xlab("Step length" ) + 
+#   #ylim( 0, 0.01 ) + xlim(0, 2000 ) +
+#   theme_bw( base_size = 19 )  +
+#   theme( legend.position = "none" )
+# #What does the plot tell us about the step lengths traveled by the individual?
+# # Answer:
+# 
+# #Reduce individual tracks based on selected steps above 
+# tr.red <- tr.slow %>% select( x_= x1_, y_=y1_, t_=t1_ ) %>% 
+#   left_join( tr.idv, by = c('x_', "y_", "t_" ) )
+# # view
+# tr.red
+# # Note that the output is a tibble. Turn it back to a track:
+# tr.red <- tr.red %>%  
+#   amt::make_track(.y = y_, .x = x_, .t = t_, id = id, 
+#                   mth = mth, jday = jday, speed = speed, alt = alt, territory = territory,
+#                   crs = crstracks )
+# 
+# #############################################################################
+# # Saving relevant objects and data ---------------------------------
+# #save hourly detection dataframe with weather predictors
+# # write.csv(x = det_df, 
+# #           #ensure that you save it onto your datafolder
+# #           file = paste0( datapath, 'stoc_det_df.csv'), 
+# #           row.names = FALSE )
+# #save workspace in case we need to make changes
+# save.image( "ER_TracksWorkspace.RData" )
+# 
+# ########## end of save #########################
+# ############### END OF Tracks ########################################
 
 # load packages relevant to this script:
 library( tidyverse ) #easy data manipulation
@@ -655,18 +656,18 @@ hrred <- trks.red %>%  amt::nest( data = -"territory" ) %>%
 #view
 hrred 
 
-#plot home ranges
-#select tibble 
-hrred %>%
-  #choose one home range method at a time
-  hr_to_sf( hr_kde, territory, n ) %>% 
-  #hr_to_sf( hr_mcp, territory, n ) %>% 
-  #plot with ggplot
-  ggplot( . ) +
-  theme_bw( base_size = 17 ) + 
-  geom_sf() +
-  #plot separate for each indvidual
-  facet_wrap( ~territory )
+# #plot home ranges
+# #select tibble 
+# hrred %>%
+#   #choose one home range method at a time
+#   hr_to_sf( hr_kde, territory, n ) %>% 
+#   #hr_to_sf( hr_mcp, territory, n ) %>% 
+#   #plot with ggplot
+#   ggplot( . ) +
+#   theme_bw( base_size = 17 ) + 
+#   geom_sf() +
+#   #plot separate for each indvidual
+#   facet_wrap( ~territory )
 
 #We can see large variation of home range sizes between individuals#
 # during the breeding season. BUT, we know our sampling wasn't #
@@ -708,8 +709,8 @@ ids <- unique( hr_wk$territory )
 for( i in 1:length(ids)){
   wp <- hr_wk %>% filter( territory == ids[i] ) %>% 
     #choose one home range method at a time
-    hr_to_sf( hr_kde, wk, n ) %>% 
-    #hr_to_sf( hr_mcp, wk, n ) %>% 
+    #hr_to_sf( hr_kde, wk, n ) %>% 
+    hr_to_sf( hr_mcp, wk, n ) %>% 
     #plot with ggplot
     ggplot( . ) +
     theme_bw( base_size = 15 ) + 
