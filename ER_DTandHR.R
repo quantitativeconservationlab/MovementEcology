@@ -689,7 +689,7 @@ hr_wk <- trks.red %>%
     hr_mcp = map(data, ~ hr_mcp(., levels = c(0.5, 0.9)) ),
     hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.9)) ))
 
-hr_wk
+hr_wk[["data"]][[1]]
 
 # How many points are enough? 
 # Answer: 
@@ -706,7 +706,7 @@ unique(ids)
 #define a vector with individual ids
 ids <- unique( hr_wk$territory )
 # this way you can loop through each individual
-for( i in 1:length(ids)){
+for( i in length(ids) ){
   wp <- hr_wk %>% filter( territory == ids[i] ) %>% 
     #choose one home range method at a time
     #hr_to_sf( hr_kde, wk, n ) %>% 
@@ -715,12 +715,32 @@ for( i in 1:length(ids)){
     ggplot( . ) +
     theme_bw( base_size = 15 ) + 
     geom_sf() +
-    labs( main = ids[i] ) +
+    labs( title = ids[i] ) +
     #plot separate for each indvidual
     facet_wrap( ~wk )
   # prints each individual separately
   print( wp )
 }
+
+#now plot only a single week for all individuals
+
+hr.1wk <- hr_wk %>% filter( wk == 26 )
+hr.1wk
+for( i in length(hr.1wk$territory) ){
+  wp <- hr.1wk %>% 
+    #choose one home range method at a time
+    #hr_to_sf( hr_kde, wk, n ) %>% 
+    hr_to_sf( hr_mcp, territory, n ) %>% 
+    #plot with ggplot
+    ggplot( . ) +
+    theme_bw( base_size = 15 ) + 
+    geom_sf() +
+    #plot separate for each indvidual
+    facet_wrap( ~territory )
+  # prints each individual separately
+  print( wp )
+}
+
 # Try plotting this with the other estimator. 
 # what differences do you see between them?
 # Answer: 
