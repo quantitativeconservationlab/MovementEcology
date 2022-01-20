@@ -98,21 +98,29 @@ hr_wk <- trks.red %>%
 #define a vector with individual ids
 ids <- unique( hr_wk$id )
 # this way you can loop through each individual
-for( i in 1:length(ids)){
+#for( i in 1:2){#length(ids)){
+  wp1 <- hr_wk %>% filter( id == ids[i] ) %>% 
+    #choose one home range method at a time
+    hr_to_sf( hr_kde, id, wk, n ) %>% 
+    filter( level == 0.9 )
   wp <- hr_wk %>% filter( id == ids[i] ) %>% 
   #choose one home range method at a time
-  hr_to_sf( hr_kde, wk, n ) %>% 
+  hr_to_sf( hr_mcp, id, wk, n ) %>% 
+    filter( level == 0.9 ) %>% 
   #hr_to_sf( hr_mcp, wk, n ) %>% 
   #plot with ggplot
   ggplot( . ) +
   theme_bw( base_size = 15 ) + 
-  geom_sf() +
-  labs( main = ids[i] ) +
+  geom_sf(aes( fill = as.factor(wk) ) ) +
+  geom_sf( data = wp1, aes( colour = as.factor(wk)), alpha = 0 ) +
+    scale_x_continuous( breaks = c( -116.0,-115.8, -115.6 ) ) +  
+  labs( title = ids[i], fill = "week", x = "lat") +
   #plot separate for each indvidual
   facet_wrap( ~wk )
  # prints each individual separately
   print( wp )
 }
+
 # Try plotting this with the other estimator. 
 # what differences do you see between them?
 # Answer: 

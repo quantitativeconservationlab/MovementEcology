@@ -88,7 +88,7 @@ NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSamplin
 
 #######################################################################
 ######## cleaning data ###############################################
-# Data cleaning is crucial to accurate analysis # 
+# Data cleaning is crucial for accurate analysis # 
 # Trapping records provide info on when individuals were fitted #
 # with transmitters.#
 colnames( records )
@@ -111,6 +111,24 @@ records$serial <- paste0( '894608001201',records$Telemetry.Unit.ID )
 
 #check 
 head( records); dim( records)
+
+# Using serial ID unique to each individual found in df, add territory column
+# In Territory column each serial ID is linked to its corresponding territory
+records <- records %>%
+  mutate(territory = case_when(
+    endsWith(serial, "47221") ~ "SG",
+    endsWith(serial, "47775") ~ "CRW",
+    endsWith(serial, "47874") ~ "SDTP",
+    endsWith(serial, "48120") ~ "PR_II",
+    endsWith(serial, "46751") ~ "HHGS_DS",
+    endsWith(serial, "46983") ~ "HHGS_US",
+    endsWith(serial, "47197") ~ "Mac",
+    endsWith(serial, "48229") ~ "CRW_new",
+    endsWith(serial, "48377") ~ "CFR",
+  ))
+
+unique(records$territory)
+
 ###################################################################
 # Clean GPS data
 # GPS units often provide information on the quality of the fixes they #
@@ -124,7 +142,7 @@ hist( dataraw$hdop, breaks = 50 )
 hist( dataraw$time_to_fix )
 
 # Remove 2D fixes and fixes where HDOP or VDOP ≥10 following #
-# D’eon and Delparte (2005); Poessel et al. (2016).#
+# D’eon and Delparte (2005).#
 # Also those where time to fix > 20min or with 0 satellites:
 
 #start by creating a new dataframe to store cleaned location records:
@@ -164,9 +182,9 @@ datadf$ts <- as.POSIXct( datadf$date )
 #view
 head( datadf ); dim( datadf )
 
-# check if any data are missing
-all( complete.cases( datadf ) )
-# none so we can move on
+# # check if any data are missing
+# all( complete.cases( datadf ) )
+# # none so we can move on
 
 # we also add month and day of year information using lubridate
 datadf <- datadf %>% 
@@ -176,7 +194,7 @@ datadf <- datadf %>%
 # We need to remove records for fixes that were recorded before the #
 # units were fitted to the animals so we append relevant information #
 # from the records dataframe. We do that by combining datadf to records df#
-datadf <- records %>%  dplyr::select( serial, Sex, StartDay ) %>% 
+datadf <- records %>%  dplyr::select( serial, territory, Sex, StartDay ) %>% 
   right_join( datadf, by = "serial" )
 #view
 head( datadf ); dim( datadf )
@@ -218,15 +236,27 @@ table( datadf$id )
 # 
 # We can also get an idea of the data collection for each individual
 # by plotting histograms
+#sampling duration
 ggplot( datadf, aes( x = jday, group = id ) ) +
   theme_classic( base_size = 15 ) +
   geom_histogram( ) +
   facet_wrap( ~ id )
+#speeds travelled
+ggplot( datadf, aes( x = speed, group = id ) ) +
+  theme_classic( base_size = 15 ) +
+  geom_histogram( ) +
+  facet_wrap( ~ id )
+
 # What do the histograms tell you about the nature of the data #
 # Sample size, intensity for different individuals? #
 # Answer:
 #
-
+#Why is the first bar on the speed histograms so tall?
+#Answer:
+#
+# do we need to remove data based on these?
+#Answer:
+#
 #######################################################################
 ###### Creating tracks, calculating step lengths and turning angles ###
 ####              for all individuals at the same time:           #####
@@ -234,9 +264,10 @@ ggplot( datadf, aes( x = jday, group = id ) ) +
 #amt requires us to turn data into tracks for further analyses.
 trks <- datadf %>% 
   #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, 
+  amt::make_track( .y = lat, .x = lon, .t = ts, 
     #define columns that you want to keep, relabel if you need:
-    id = id, sex = Sex, mth = mth,jday = jday, speed = speed, alt = alt, 
+    id = id, territory = territory,
+    sex = Sex, mth = mth,jday = jday, speed = speed, alt = alt, 
     #assign correct crs
     crs = crsdata )
 
@@ -256,7 +287,7 @@ trks
 for( i in 1:dim(trks)[1]){
   a <- as_sf_points( trks$data[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
+    labs( title = paste0('individual =', trks$territory[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
     geom_sf() 
   print(a)
@@ -269,7 +300,7 @@ for( i in 1:dim(trks)[1]){
 # 
 # Here we rely on NCA polygon, removing records that exist East of the #
 # NCA. We can extra the extent of a polygon:
-sf::st_bbox(NCA_Shape)
+sf::st_bbox( NCA_Shape )
 #Then use the Eastern-most coordinate to filter out data 
 xmax <- as.numeric(st_bbox(NCA_Shape)$xmax) #627081.5
 #subset those tracks less than as breeding and those > as migrating:
@@ -289,14 +320,14 @@ for( i in 1:dim(trks)[1]){
     group_by( jday ) %>% 
     summarise( sl_ = log( sum(sl_) ) ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
+    labs( title = paste0('individual =', trks$territory[i]) ) +
     geom_line( aes( y = sl_, x = jday))
   print(a)
 }
 
 # We focus on breeding season data:
 # Estimate sampling rate for each individual by looping through 
-# data using purrr function map
+# data using purr function map
 sumtrks <- trks %>%  summarize( 
   map( breeding, amt::summarize_sampling_rate ) )
 #view
