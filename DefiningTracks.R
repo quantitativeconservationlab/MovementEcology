@@ -71,7 +71,7 @@ load_data <- function( path ){
 #apply function to import all files as list of databases:
 dataraw <- load_data( paste0(datapath, 'allindvs/') )
 #Note that the files are all in a subdirectory
-
+head(dataraw)
 # Import trapping records with details of when radiotrackers were 
 # fitted to the individuals
 records <- read.csv( file = paste0( datapath,"survey_0.csv" ),
@@ -287,7 +287,7 @@ trks
 for( i in 1:dim(trks)[1]){
   a <- as_sf_points( trks$data[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$territory[i]) ) +
+    labs( title = paste0('individual =', trks$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
     geom_sf() 
   print(a)
@@ -310,20 +310,20 @@ trks <- trks %>% mutate(
 
 #view
 trks
-# Note we created two other groups of tibbles for the breeding season
-# and migrating season #
-# Plot step lengths
-for( i in 1:dim(trks)[1]){
-  a <-  steps( trks$breeding[[i]] ) %>% 
-  #a <-  steps( trks$migrating[[i]] ) %>% 
-    mutate( jday = lubridate::yday( t1_ ) ) %>% 
-    group_by( jday ) %>% 
-    summarise( sl_ = log( sum(sl_) ) ) %>% 
-    ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$territory[i]) ) +
-    geom_line( aes( y = sl_, x = jday))
-  print(a)
-}
+# # Note we created two other groups of tibbles for the breeding season
+# # and migrating season #
+# # Plot step lengths
+# for( i in 1:dim(trks)[1]){
+#   a <-  steps( trks$breeding[[i]] ) %>% 
+#   #a <-  steps( trks$migrating[[i]] ) %>% 
+#     mutate( jday = lubridate::yday( t1_ ) ) %>% 
+#     group_by( jday ) %>% 
+#     summarise( sl_ = log( sum(sl_) ) ) %>% 
+#     ggplot(.) + theme_bw(base_size = 17) +
+#     labs( title = paste0('individual =', trks$id[i]) ) +
+#     geom_line( aes( y = sl_, x = jday) )
+#   print(a)
+# }
 
 # We focus on breeding season data:
 # Estimate sampling rate for each individual by looping through 
@@ -343,9 +343,14 @@ trks.all <- trks %>% mutate(
 #view
 trks.all
 
+trks.all[[2]]
+#note that this creates a new set of tibbles called steps - that uses
+# the breeding season data
 
+# Use these new set of steps tibbles to 
 # plot autocorrelation for step lengths for all individuals
 par( mfrow = c( 2,3 ) )
+#based on direction
 for( i in 1:dim(trks.all)[1] ){
   #extract individual ids
   idd <- trks.all$id[i]
@@ -354,18 +359,37 @@ for( i in 1:dim(trks.all)[1] ){
   #remove missing data
   x <- x[!is.na(x)]
   #calculate autocorrelation function:
-  acf( x, lag.max = 300,
+  acf( x, lag.max = 1000,
+       main = paste0( "individual = ",idd ) )
+  #Note you can modify the lag.max according to your data 
+}
+#based on step lengths
+par( mfrow = c( 2,3 ) )
+for( i in 1:dim(trks.all)[1] ){
+  #extract individual ids
+  idd <- trks.all$id[i]
+  #use tibbles we calculated in steps
+  x <- pull( trks.all[["steps"]][[i]], sl_  )
+  #remove missing data
+  x <- x[!is.na(x)]
+  #calculate autocorrelation function:
+  acf( x, lag.max = 1000,
        main = paste0( "individual = ",idd ) )
   #Note you can modify the lag.max according to your data 
 }
 # What would be a reasonable rate to resample at?
 # Answer:
 # 
-# I choose 30min
+# I keep the original sampling rate (all autocorrelation as is) and  
+# also resample the 'breeding' tibbles to 30min intervals
 trks.all <- trks.all %>% 
-  mutate(red = map(breeding, function(x ) x %>%  
+  mutate(red = map(breeding, function( x ) x %>%  
                track_resample( rate = minutes(30),
-               tolerance = minutes(5) ) ) )
+               tolerance = minutes(5) ) ),
+         red.steps = map( breeding, function(x) 
+           x %>%  track_resample( rate = seconds(30), 
+                                  tolerance = seconds(30)) %>% 
+             steps_by_burst() ) )
 #view
 trks.all
 
@@ -375,136 +399,69 @@ trks.breed <- trks.all %>% select( id, breeding ) %>%
   unnest( cols = breeding ) 
 head( trks.breed )
 
+#the step dataframes resampled at 5sec intervals 
+trks.steps <- trks.all %>% select( id, steps ) %>% 
+  unnest( cols = steps ) 
+head( trks.steps )
+
 # Now breeding season data, without autocorrelation:
-trks.red <- trks.all %>% select( id, red ) %>% 
+trks.thin <- trks.all %>% select( id, red ) %>% 
   unnest( cols = red ) 
-head( trks.red )
+head( trks.thin )
+
+# Now breeding season data, without autocorrelation:
+trks.steps30 <- trks.all %>% select( id, red.steps ) %>% 
+  unnest( cols = red.steps ) 
+head( trks.steps30 )
+
 
 # Last all migration data:
 trks.mig <- trks.all %>% select( id, migrating ) %>% 
   unnest( cols = migrating ) 
 head( trks.mig )
-###############
-
-###########################################################################
-###### Creating tracks, calculating step lengths and turning angles ######
-#                     for a single individual                             #
-######################
-# We start by creating a track for a single individual:
-tr.idv <- datadf %>% 
-  #select data for one individual only
-  dplyr::filter( id == 1 ) %>% 
-  # remove duplicate times
-  dplyr::filter( !duplicated( ts ) ) %>% 
-  #make track. Note you can add additional columns to it
-  amt::make_track(.y = lat, .x = lon, .t = ts, id = id, mth = mth, 
-        jday = jday, sex = Sex, speed = speed, alt = alt, 
-              #note that we give it the data CRS to start
-              crs = crsdata )
-#check it
-class( tr.idv ); head( tr.idv ); dim( tr.idv )
-# A common mistake when working with spatial data is forgetting to #
-# set data to correct projection, which can introduce significant errors #
-# in your analysis #
-# Project object to UTM:
-tr.idv <- amt::transform_coords( tr.idv, crstracks )
-tr.idv
-# Why do we change it to UTM?
-# Answer: 
-#
-# We check our sampling rate:
-tr.idv %>% amt::summarize_sampling_rate()
-# What is it telling us?
-# Answer:
-#
-
-# Resample track to high resolution frequency so that we can add a #
-# burst_ id grouping fixes into separate paths #
-# This accounts for gaps in the data due to missing fixes or uneven sampling
-# rates #
-tr.3 <- tr.idv %>%  
-  amt::track_resample( rate = seconds(5),
-                       tolerance = seconds(5) )
-tr.3
-# Convert resulting track to steps, while taking into account the grouping #
-# set by bursts_:
-tr.3 <- amt::steps_by_burst( tr.3 )
-# How many groups or bursts do we have for our individual?
-# Answer:
-#
-# Some analyses require independence of your fix locations. #
-# Temporal autocorrelation of locations leads to underestimation in #
-# home range size and bias in predictions of habitat selection, core area, #
-# and intensity of resource use for those methods that rely on it. #
-# We therefore need to create an additional thinned dataset that removes #
-# autocorrelation in step lengths and turning angles for our individual track#
-
-# Start by check autocorrelation of track based on direction and turning angles:
-acf( tr.3[,"direction_p"] )
-acf( tr.3[!is.na(tr.3[,'ta_']),'ta_'] )
-# What do these plot tell us? 
-# Answer:
-# 
-# Adjust sampling rate based on results from acf plots above#
-tr.slow <- tr.idv %>%  
-  amt::track_resample( rate = minutes(1),
-                       tolerance = seconds(5) )
-# Recalculate metrics and recheck autocorrelation
-tr.slow <- steps_by_burst( tr.slow )
-acf( tr.slow[,"direction_p"] )
-acf( tr.slow[!is.na(tr.slow[,'ta_']),'ta_'] )
-# What can you see in the new plots?
-# Answer:
-# 
-#How much data did we loose with this resampling strategy?
-tr.slow
-dim(tr.idv)[1] - dim(tr.slow)[1] 
-#Answer:
-#
-# Comment on what this means regarding sample size, etc
-# Answer:
-#
-# We can plot step lengths and turning angles for each burst by:
-tr.slow %>% 
+#############################################################
+########## step lengths and turning angles  ##################
+#########################
+# We can plot step lengths by:
+#trks.steps30 %>% 
+trks.steps %>%   
   ggplot(.) +
-  geom_density( aes( x = sl_, fill = as.factor(burst_)), alpha = 0.4 ) +
+  #geom_density( aes( x = sl_, fill = as.factor(burst_)), alpha = 0.4 ) +
+  geom_histogram( aes( x = sl_ ) ) +
   xlab("Step length" ) + 
   #ylim( 0, 0.01 ) + xlim(0, 2000 ) +
   theme_bw( base_size = 19 )  +
-  theme( legend.position = "none" )
+  theme( legend.position = "none" ) +
+  facet_wrap( ~id, scales = 'free_y' )
 #What does the plot tell us about the step lengths traveled by the individual?
 # Answer:
 
 #
 # Turning angles:
-tr.slow %>% 
-  ggplot( ., aes( x = ta_, y = burst_ ) ) +
-  geom_bar(stat="identity") +
-  coord_polar() +
+trks.steps %>% #filter( id == 1 ) %>% 
+  ggplot( .) +
+  geom_histogram( aes( x = ta_ ) ) +
+  #geom_histogram( aes( x = direction_p ) ) +
+  #coord_polar() +
   ylab("Turning angle") + xlab("") + 
-  theme_bw( base_size = 19)  
+  theme_bw( base_size = 19 ) +
+  facet_wrap( ~id, scales = 'free_y' )
 # Is there any evidence of biased movements for this individual?
 # Answer:
 # 
-
-#Reduce individual tracks based on selected steps above 
-tr.red <- tr.slow %>% select( x_= x1_, y_=y1_, t_=t1_ ) %>% 
-  left_join( tr.idv, by = c('x_', "y_", "t_" ) )
-# view
-tr.red
-# Note that the output is a tibble. Turn it back to a track:
-tr.red <- tr.red %>%  
-  amt::make_track(.y = y_, .x = x_, .t = t_, id = id, 
-            mth = mth, jday = jday, speed = speed, alt = alt, 
-            crs = crstracks )
-
 #############################################################################
 # Saving relevant objects and data ---------------------------------
-#save hourly detection dataframe with weather predictors
-# write.csv(x = det_df, 
-#           #ensure that you save it onto your datafolder
-#           file = paste0( datapath, 'stoc_det_df.csv'), 
-#           row.names = FALSE )
+#save breeding season data (not thinned)
+write_rds( trks.breed, "trks.breed")
+#save breeding season data (turned into steps)
+write_rds( trks.steps, "trks.steps" )
+#save breeding season data (thinned)
+write_rds( trks.thin, "trks.thin" )
+#save breeding season data (steps thinned)
+write_rds( trks.steps30, "trks.steps30" )
+#save migration data (unthinned)
+write_rds( trks.mig, "trks.mig" )
+
 #save workspace in case we need to make changes
 save.image( "TracksWorkspace.RData" )
 
