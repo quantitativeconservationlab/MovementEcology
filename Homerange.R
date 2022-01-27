@@ -30,7 +30,12 @@ rm( list = ls() )
 # workdir <- getwd()
 
 # load workspace 
-load( "TracksWorkspace.RData" )
+#load( "TracksWorkspace.RData" )
+
+#load cleaned data:
+#download the thinned (30min) data
+trks.thin <- read_rds( "trks.thin" )
+
 ###############################################################
 ##### Comparing different estimators for occurrence      #######
 ###   distributions for all individuals at once.          ####
@@ -44,18 +49,24 @@ load( "TracksWorkspace.RData" )
 ##############################################################
 
 # We start with thinned data, required for MCP and KDE methods:
-hrred <- trks.red %>%  amt::nest( data = -"id" ) %>% 
+ranges <- trks.thin %>% 
+  #we group tibbles for each individual:
+  amt::nest( data = -"id" ) %>% 
+  #then add estimates from two home range measures:
   mutate(
+    #Minimum Convex Polygon
     hr_mcp = map(data, ~ hr_mcp(., levels = c(0.5, 0.9)) ),
+    #Kernel density estimator
     hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.9)) ),
+    #also calculate the sample size for each individual
     n = map_int( data, nrow )
   )  
 #view
-hrred 
+ranges
 
-#plot home ranges
+#plot MCPs:
 #select tibble 
-hrred %>%
+ranges %>%
   #choose one home range method at a time
   hr_to_sf( hr_kde, id, n ) %>% 
   #hr_to_sf( hr_mcp, id, n ) %>% 
@@ -63,7 +74,15 @@ hrred %>%
   ggplot( . ) +
   theme_bw( base_size = 17 ) + 
   geom_sf() +
-  #plot separate for each indvidual
+  #plot separate for each individual
+  facet_wrap( ~id )
+
+#plot KDEs:
+ranges %>%
+  hr_to_sf( hr_mcp, id, n ) %>% 
+  ggplot( . ) +
+  theme_bw( base_size = 17 ) + 
+  geom_sf() +
   facet_wrap( ~id )
 
 #We can see large variation of home range sizes between individuals#
@@ -72,48 +91,47 @@ hrred %>%
 # estimated occurrence distributions weekly. #
 
 #To do this, we first need to work out week of the year. #
-trks.red <- trks.red %>%  
+trks.thin <- trks.thin %>%  
         mutate( wk = lubridate::week( t_) ) 
 
 # recalculate n and homerange estimates
-hr_wk <- trks.red %>%  
+hr_wk <- trks.thin %>%  
       # we nest by id and week
-      nest( data = -c(id, wk)) %>%
+      nest( data = -c(id, wk) ) %>%
       mutate( n = map_int(data, nrow) ) %>% 
   #remove weeks without enough points
-  filter( n > 15 ) %>% 
+  filter( n > 10 ) %>% 
   mutate( #now recalculate weekly home range
   hr_mcp = map(data, ~ hr_mcp(., levels = c(0.5, 0.9)) ),
   hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.9)) ))
-
-# How many points are enough? 
-# Answer: 
-#
-# How many weeks of data did you loose by removing weeks 
-# without enough points?
-# Answer:
-# 
 
 #plot weekly home ranges
 #define a vector with individual ids
 ids <- unique( hr_wk$id )
 # this way you can loop through each individual
-#for( i in 1:2){#length(ids)){
+for( i in 1:length(ids)){
+  #convert point locations to sf object for each animal
+  points <- as_sf_points( trks.thin %>% filter( id == ids[i] ))
+  #extract data for one home range method at a time:
+  #mcp
   wp1 <- hr_wk %>% filter( id == ids[i] ) %>% 
-    #choose one home range method at a time
     hr_to_sf( hr_kde, id, wk, n ) %>% 
     filter( level == 0.9 )
+  #now for mcp
   wp <- hr_wk %>% filter( id == ids[i] ) %>% 
-  #choose one home range method at a time
   hr_to_sf( hr_mcp, id, wk, n ) %>% 
     filter( level == 0.9 ) %>% 
-  #hr_to_sf( hr_mcp, wk, n ) %>% 
   #plot with ggplot
   ggplot( . ) +
   theme_bw( base_size = 15 ) + 
+  # start with mcp which is part of the piping
   geom_sf(aes( fill = as.factor(wk) ) ) +
-  geom_sf( data = wp1, aes( colour = as.factor(wk)), alpha = 0 ) +
-    scale_x_continuous( breaks = c( -116.0,-115.8, -115.6 ) ) +  
+  # to add kde then define separate data object
+  geom_sf( data = wp1, aes( colour = as.factor(wk)), 
+           alpha = 0, size = 2 ) +
+    #scale_x_continuous( breaks = c( -117.0,-116.0, -115.0 ) ) +  
+  #add used locations:
+  geom_sf( data = points ) +
   labs( title = ids[i], fill = "week", x = "lat") +
   #plot separate for each indvidual
   facet_wrap( ~wk )
@@ -121,11 +139,13 @@ ids <- unique( hr_wk$id )
   print( wp )
 }
 
-# Try plotting this with the other estimator. 
-# what differences do you see between them?
-# Answer: 
-#
+#plot tracks
+ggplot( trks.thin, aes( x = x_, y = y_, color = as.factor(wk) ) ) +
+  theme_bw( base_size = 15 ) +
+  geom_point( size = 2 ) +
+  facet_wrap( ~as.factor(id), scales = "free" )
 
+###### Estimating home range area ##########################
 # We can also calculate the weekly area. We take weekly home ranges#
 # remove tracking data and convert to long dataframe
 hr_area <- hr_wk %>%  select( -data ) %>% 
@@ -187,79 +207,14 @@ ci_wk %>%
 # Answer: 
 # 
 
-#######################################################################
-############ Home range overlap ###############################
-# amt currently implements methods reviewed by Fieberg & Kochany (2005) #
-# hr: proportion of home range of instance i that overlaps with the home #
-# range of instance j. This measure does not rely on a UD and is #
-# directional (i.e., HRi,j≠HRj,i) and bound between 0 (no overlap) #
-# and 1 (complete overlap) #
-# phr: Is the probability of instance j being located in the home range #
-# of instance i. phr is also directional and bounded between 0 (no #
-# overlap) and 1 (complete overlap) #
-# vi: The volumetric intersection between two UDs.#
-# ba: The Bhattacharyya’s affinity between two UDs. #
-# udoi: A UD overlap index. # 
-# hd: Hellinger’s distance between two UDs. #
-
-
+#### end of area ##############
 ##############   Home range  for one individual ####################
-#compare same methods for a single individual #
-# using data with no autocorrelation again:
-red_kde <- amt::hr_kde( tr.red, levels = c(0.5, 0.9) )
-red_mcp <- amt::hr_mcp( tr.red, levels = c(0.5, 0.9) )
-
-# Now estimate home range with a continuous-time movement model:
-# options are "iid": for uncorrelated independent data, 
-#  "bm": Brownian motion, "ou": Ornstein-Uhlenbeck process,
-# "ouf": Ornstein-Uhlenbeck forage process, 
-# "auto": uses model selection with AICc to find bets model
-red_akde <- amt::hr_akde( x = tr.red, 
-                          model = fit_ctmm( tr.idv, "ouf" ),
-                          levels = c(0.5, 0.9))
-
-# Comment on the choice of model you used for the akde?
-# Answer:
-#
-
-# Plot output of different methods, including locations:
-plot( red_kde, add = TRUE, #add.relocations = FALSE, 
-      lwd = 2, col = 'red' )
-plot( red_akde,  add = TRUE, #add.relocations = TRUE,
-      col = 'orange', lwd = 2 )
-plot( red_mcp, add.relocations = TRUE, add = TRUE, 
-      col = 'blue', lwd = 2 )
-
-#Estimate areas for each method
-amt::hr_area( red_kde ); amt::hr_area( red_akde ); amt::hr_area( red_mcp )
-# comment on the results
-# Answer:
-#
-
-# Estimate home ranges but now use data that has not been thinned:
-#Kernel 
-idv_kde <- amt::hr_kde( tr.idv, levels = c(0.5, 0.9) )
-#Autocorrelated kernel
-red_akde <- amt::hr_akde( x = tr.idv, 
-                          model = fit_ctmm( tr.idv, "ouf" ),
-                          levels = c(0.5, 0.9))
-#Minimum convex polygon
-idv_mcp <- amt::hr_mcp( tr.idv, levels = c(0.5, 0.9) )
-
-#We can also estimate corresponding areas
-amt::hr_area( idv_kde );amt::hr_area( idv_akde ); amt::hr_area( idv_mcp )
-
-#view
-par( mfrow = c(1,1))
-plot( idv_kde )
-plot( idv_akde, add.relocations = FALSE, add = TRUE, lty = 3  )
-plot( idv_mcp, add.relocations = FALSE, add = TRUE, lty = 2 )
-# What was the influence of removing temporal autocorrelation on 
-# results for each method?
-# Answer:
-#
 
 ###########################################################
 ### Save desired results                                  #
-save.image( 'homerangeresults.RData' )
+#save breeding season data (not thinned)
+write_rds( hr_wk, "hr_wk")
+#save range area estimates
+write_rds( ci_wk, "ci_wk" )
+#save.image( 'homerangeresults.RData' )
 ############# end of script  ###########################################
