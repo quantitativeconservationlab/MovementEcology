@@ -30,7 +30,7 @@ rm( list = ls() )
 # workdir <- getwd()
 
 # load workspace 
-#load( "TracksWorkspace.RData" )
+#load( "homerangeresults.RData" )
 
 #load cleaned data:
 #download the thinned (30min) data
