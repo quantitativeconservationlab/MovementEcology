@@ -47,11 +47,12 @@ trks.thin <- read_rds( "trks.thin" )
 # so we also standardize time periods to evaluate the       ##
 ### effects of sampling period on home range estimates.     ##
 ##############################################################
-
+#check if object has coordinate system in the right format
+get_crs( trks.thin )
 # We start with thinned data, required for MCP and KDE methods:
 ranges <- trks.thin %>% 
   #we group tibbles for each individual:
-  amt::nest( data = -"id" ) %>% 
+  nest( data = -"id" ) %>% 
   #then add estimates from two home range measures:
   mutate(
     #Minimum Convex Polygon

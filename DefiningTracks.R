@@ -19,10 +19,13 @@
 install.packages( "tidyverse" ) #actually a collection of packages 
 install.packages( "sp" )
 install.packages( "amt" )
+#trying to install amt directly from github
+install.packages( "devtools")
+devtools::install_github("jmsigner/amt")
 install.packages( "sf" )
 
 # load packages relevant to this script:
-library( sp )
+#library( sp )
 library( tidyverse ) #easy data manipulation and plotting
 # set option to see all columns and more than 10 rows
 options( dplyr.width = Inf, dplyr.print_min = 100 )
@@ -221,14 +224,14 @@ datadf$id <- group_indices( datadf, serial )
 # to learn more. #
 
 # For amt, crs need to be provided using sp package so:
-crsdata <- sp::CRS( "+init=epsg:4326" )
+crsdata <- 4326# sp::CRS( "+init=epsg:4326" )
 # We also want to transform the lat longs to easting and northings #
 # using UTM. For this we need to know what zone we are in. Go: #
 # http://www.dmap.co.uk/utmworld.htm
 # We choose zone 11:
-crstracks <- sp::CRS( "+proj=utm +zone=11" )
+crstracks <- sf::st_crs( NCA_Shape )#sp::CRS( "+proj=utm +zone=11" )
 #We convert the NCA shapefile to the same projection as our tracks
-NCA_Shape <- sf::st_transform( NCA_Shape, crstracks )
+#NCA_Shape <- sf::st_transform( NCA_Shape, crstracks )
 # We are now ready to make tracks using atm package
 #We first check sample size #
 table( datadf$id )
@@ -272,7 +275,8 @@ trks <- datadf %>%
     crs = crsdata )
 
 # Reproject to UTM to convert lat lon to easting northing:
-trks <- amt::transform_coords( trks, crstracks )
+#trks <- amt::transform_coords( trks, crstracks )
+trks <- amt::transform_coords( trks, crs_to = crstracks )
 #Turn into a tibble list by groupping and nest by individual IDs:
 trks <- trks %>%  amt::nest( data = -"id" )
 #view
@@ -303,10 +307,17 @@ for( i in 1:dim(trks)[1]){
 sf::st_bbox( NCA_Shape )
 #Then use the Eastern-most coordinate to filter out data 
 xmax <- as.numeric(st_bbox(NCA_Shape)$xmax) #627081.5
+#Then use the Eastern-most coordinate to filter out data 
+ymax <- as.numeric(st_bbox(NCA_Shape)$ymax) + 500 #627081.5
+
 #subset those tracks less than as breeding and those > as migrating:
 trks <- trks %>% mutate(
   breeding = map( data, ~ filter(., x_ < xmax ) ),
   migrating = map( data, ~ filter(., x_ >= xmax ) ) )
+
+trks <- trks %>% mutate(
+  breeding = map( data, ~ filter(., y_ < ymax ) ),
+  migrating = map( data, ~ filter(., y_ >= ymax ) ) )
 
 #view
 trks
