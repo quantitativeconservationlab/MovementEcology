@@ -1,7 +1,7 @@
 ##################################################################
 # Script developed by Jen Cruz to estimate ranges using AKDE     # 
 # For this script we rely on Fleming et al.(2015) Ecology 96(5):1182-1188#
-# We use ctmm first, and then use atm                           #
+# We use ctmm first, and then use amt                           #
 # For instructions on how to use ctmm directly check out:       #
 # https://cran.r-project.org/web/packages/ctmm/vignettes/variogram.html #
 # https://cran.r-project.org/web/packages/ctmm/vignettes/akde.html #
@@ -39,8 +39,6 @@ class( trks.thin )
 #check that the crs was correctly imported 
 get_crs( trks.thin )
 
-# load pre-calculated results
-#load("../ctmmresults.rda") 
 ###############################################################
 ##### Estimate ranges using AKDE continuous-time movement model:#
 ################################################################
@@ -78,14 +76,14 @@ svf.a <- variogram( ctmm.a )
 par(mfrow = c(2,1) )
 plot(svf.t, fraction = 1, level = 0.95)
 plot(svf.a, fraction = 1, level = 0.95 )
-#Autocorrelated data (breed) has uneven sampling that seems
-#to affect the ability for us to use it. Variograms do not seem
-#interpretable at this stage so we focus on the thinned data below:
+#That second plot took a long time on my computer....
+# for efficiency in the class I'm sticking to the thinned #
+# data, moving forward. #
 
 ##### ALL individuals using ctmm     ###############
 ###########
-#Now we plot variograms for all individuals
-# extract names for all individuals
+#Plot variograms for all individuals
+# extract names for individuals first into an object
 ids <- unique( trks.thin$territory )
 #create objects to store results
 svf.t <- list()
@@ -94,12 +92,13 @@ ctmm.t <- list()
 par( mfrow = c(3,3))
 #loop through all individuals 
 for( i in 1:length(ids)){
+  #print progress
   print( i )
-  
+  # extract data for individual i
   t <- trks.thin %>% filter( id == i )
-  #convert to ctmm object
+  #convert to ctmm object and add to list
   ctmm.t[[i]] <- as_telemetry( t )
-  #Use ctmm directly to calculate empirical variograms:
+  #Calculate empirical variograms:
   svf.t[[i]] <- variogram( ctmm.t[[i]] )
   #plot variograms for each individual
   plot( svf.t[[i]] )
@@ -108,9 +107,15 @@ for( i in 1:length(ids)){
 # the authors suggestions to estimate unique movement models
 # for each individual
 
-# automate the process of estimating a suitable movement 
-# model for the observed data using the empirical 
-# variogram as a guide
+# automate the process of estimating a suitable movement     #
+# model for the observed data using the empirical            # 
+# variogram as a guide.                                     #
+# options are "iid": for uncorrelated independent data,      #
+#  "bm": Brownian motion, "ou": Ornstein-Uhlenbeck process,  #
+# "ouf": Ornstein-Uhlenbeck forage process,                  #
+# "auto": uses model selection with AICc to find bets model  #
+# These model choices have real consequences to inference    #
+
 #create and object to store results 
 m.best <- list()
 #loop through each individual
@@ -120,23 +125,27 @@ m.best <- list()
 # we also plot the empirical variograms vs the model results #
 for( i in 1:length(ids)){
   print( i )
-  # #estimate all movement models and compare using AIC:
-  # guess <- ctmm.guess(data = ctmm.t[[i]], variogram = svf.t[[i]],
-  #                     interactive = FALSE )
-  # m.best[[i]] <- ctmm.select( ctmm.t[[i]], guess, verbose = TRUE,
-  #                             trace = 2 )
-  #view
+  #use empirical variogram estimated in the previous step 
+  # as a way of guiding the choice of movement model
+  guess <- ctmm.guess(data = ctmm.t[[i]], variogram = svf.t[[i]],
+                      interactive = FALSE )
+  #here we actually compare among 6 movement model options 
+  # and compare fit using AIC to select the top model
+  m.best[[i]] <- ctmm.select( ctmm.t[[i]], guess, verbose = TRUE,
+                              trace = 2 )
+  #view summary output for model comparison for each individual
   print(summary( m.best[[i]] ))
-  #plot empirical variogram vs movement models
 }
+#use individual names to replace those in the list:
 names( m.best ) <- ids
 
+#define plotting parameters:
 par(mfrow = c(2,2))
-#now compare top model against traditional KDE
+#Nowo compare top model choice against traditional KDE
 for( i in 1:length(ids) ){
-  #plot(svf.t[[i]], fraction = 1, level = 0.95, main = ids[i])
+  #trace progress:
   print(i)
-  # include basic IID model in model list
+  # add basic IID model to model list
   m.best[[i]]$"IID isotropic" <- ctmm.fit( ctmm.t[[i]],
                                     ctmm(isotropic = TRUE) )
   #extract model name for top model
@@ -148,24 +157,32 @@ for( i in 1:length(ids) ){
   ctmm::plot( svf.t[[i]], m.best[[i]]$"IID isotropic", 
         main = paste( ids[i], "IID" ) ) #worse model
 }  
+# Now that we have estimated top movement models for each #
+# individual we are ready to apply those models to our estimates #
+# of ranges. We also have an extra option to choose from #
+# we can weight points based on high utilisation to correct the range #
+# estimate...refer to the manuscript or the vignettes for more details #
 
+# Here we compare ranges from 3 options: (1) top movement model 
+# weighted (2) top movement model without weighing (3) traditional kde no weighing
+
+# we create objects to store output from our 3 options:
 akde.uw <- list()
 akde.w <- list()
 kde.iid <- list()
-# now fit the range estimates 
+# We loop through each individual to estimate ranges for each option:
 for( i in 1:length(ids) ){
   print(i)
   # using the top movement model without weights
   akde.uw[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]][[1]] )
-  # using the top movement model without weights
+  # using the top movement model with weights
   akde.w[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]][[1]], 
                         weights = TRUE )
   #using the IID movement model without weights
   kde.iid[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]]$"IID isotropic" )
 }
 
-
-#look at results
+#plot estimate ranges comparing output for each option:
 par(mfrow = c(3,2))
 for( i in 1:length(ids) ){
   print(i)
@@ -177,20 +194,12 @@ for( i in 1:length(ids) ){
   title("Traditional KDE" )
 }
 
-
 ##############################################################
 # Estimating AKDE using atm package                          #
-# which model option do we choose?                                 #
-# options are "iid": for uncorrelated independent data,      #
-#  "bm": Brownian motion, "ou": Ornstein-Uhlenbeck process,  #
-# "ouf": Ornstein-Uhlenbeck forage process,                  #
-# "auto": uses model selection with AICc to find bets model  #
-# These model choices have real consequences to inference    #
 ##############################################################
 ################
-# We use amt package (talks to ctmm) to estimate AKDE #
-# We start with a single individual to check for computational #
-# efficiency#
+# We use amt package (talks to ctmm) to estimate AKDE for a #
+# single individual to check for computational efficiency #
 
 # define the individual id as an object at the start so you can 
 # easily change it and try new ones, without having to alter the #
@@ -200,10 +209,8 @@ i <- 2
 idv.thin <- trks.thin %>% filter( id == i )
 #inspect details for the chosen animal
 idv.thin
-# # you can look at it directly on leaflet: 
-inspect( idv.thin )
 
-# no autocorrelation in the data:
+# start estimating traditional KDE model
 f.t.iid <- amt::fit_ctmm( idv.thin, "iid" )
 #check
 summary( f.t.iid )
@@ -215,9 +222,7 @@ summary( f.t.ou )
 #What is the run time for that individual?
 # Answer:
 #
-
-
-#Estimate home range for that individual using the KDE 
+#Estimate ranges for that individual using the KDE 
 # approach that assumes no autocorrelation (traditional KDE)
 akde_iid <- idv.thin %>% 
   amt::hr_akde(., model = f.t.iid, #fit_ctmm(., "iid" ),
@@ -260,29 +265,26 @@ ggplot() +
   #add points of autocorrelated data
   # #note that we turn them into sf points for plotting
   # geom_sf( data = as_sf_points( subset( trks.breed, id == ind) ) ) +
-  geom_sf( data = as_sf_points( subset( trks.thin, id == i)), 
+  geom_sf( data = as_sf_points( subset( trks.thin, id == 2)), 
            col = "red" )
 
-
-# # if it didn't take too long for one then you can try that 
-# # approach for all
-# akde_iid_all <- trks.thin %>% 
-#   amt::hr_akde(., model = fit_ctmm(., "iid" ),
-#                levels = 0.95 )
+# What if you want to use atm for all individuals?
+# Modify code here:
+# 
+# 
 
 ###########################################################
-### Save desired results                                  #
-#save breeding season data (not thinned)
-write_rds( hr_wk, "hr_wk")
-#save range area estimates
-write_rds( ci_wk, "ci_wk" )
-
+### Save desired results #
 # we can save the movement model results
 save( m.best,file="../ctmmresults.rda") # save where you want
-#load("../ctmmresults.rda") # load pre-calculated results
+#save range results for 3 home range options
 save( akde.w,file="../ctmm_akde_w.rda")
 save( akde.uw,file="../ctmm_akde_uw.rda")
 save( kde.iid,file="../ctmm_akde_iid.rda")
+#save range for individual estimated using atm
+write_rds( akde_auto, "akde_auto")
+#save range for al individuals estimated with ctmm
+write_rds( akde.w, "weighted_akdes" )
 #save workspace if in progress
 save.image( 'AKDEresults.RData' )
 ############# end of script  ##################################

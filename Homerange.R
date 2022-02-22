@@ -32,8 +32,7 @@ rm( list = ls() )
 # load workspace 
 #load( "homerangeresults.RData" )
 
-#load cleaned data:
-#download the thinned (30min) data
+#load the thinned (30min) data
 trks.thin <- read_rds( "trks.thin" )
 
 ###############################################################
