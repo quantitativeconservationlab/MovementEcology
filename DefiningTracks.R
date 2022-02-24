@@ -308,7 +308,7 @@ sf::st_bbox( NCA_Shape )
 #Then use the Eastern-most coordinate to filter out data 
 xmax <- as.numeric(st_bbox(NCA_Shape)$xmax) #627081.5
 #Then use the Eastern-most coordinate to filter out data 
-ymax <- as.numeric(st_bbox(NCA_Shape)$ymax) + 500 #627081.5
+ymax <- as.numeric(st_bbox(NCA_Shape)$ymax) #+ 500 #627081.5
 
 #subset those tracks less than as breeding and those > as migrating:
 trks <- trks %>% mutate(
@@ -397,37 +397,37 @@ trks.all <- trks.all %>%
   mutate(red = map(breeding, function( x ) x %>%  
                track_resample( rate = minutes(30),
                tolerance = minutes(5) ) ),
-         red.steps = map( breeding, function(x) 
-           x %>%  track_resample( rate = seconds(30), 
-                                  tolerance = seconds(30)) %>% 
+         red.steps = map( breeding, function(x) x %>%  
+           track_resample( rate = minutes(30), 
+                                  tolerance = minutes(5)) %>% 
              steps_by_burst() ) )
 #view
 trks.all
 
 # We can now unnest the dataframes of interest
 #Starting with all breeding season data
-trks.breed <- trks.all %>% select( id, breeding ) %>% 
+trks.breed <- trks.all %>% dplyr::select( id, breeding ) %>% 
   unnest( cols = breeding ) 
 head( trks.breed )
 
 #the step dataframes resampled at 5sec intervals 
-trks.steps <- trks.all %>% select( id, steps ) %>% 
+trks.steps <- trks.all %>% dplyr::select( id, steps ) %>% 
   unnest( cols = steps ) 
 head( trks.steps )
 
 # Now breeding season data, without autocorrelation:
-trks.thin <- trks.all %>% select( id, red ) %>% 
+trks.thin <- trks.all %>% dplyr::select( id, red ) %>% 
   unnest( cols = red ) 
 head( trks.thin )
 
 # Now breeding season data, without autocorrelation:
-trks.steps30 <- trks.all %>% select( id, red.steps ) %>% 
+trks.steps30 <- trks.all %>% dplyr::select( id, red.steps ) %>% 
   unnest( cols = red.steps ) 
 head( trks.steps30 )
 
 
 # Last all migration data:
-trks.mig <- trks.all %>% select( id, migrating ) %>% 
+trks.mig <- trks.all %>% dplyr::select( id, migrating ) %>% 
   unnest( cols = migrating ) 
 head( trks.mig )
 #############################################################
