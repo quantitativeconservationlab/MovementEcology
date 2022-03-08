@@ -169,8 +169,10 @@ summary( m1 )
 
 ###########################################################
 ##### end ######
+
+######################################################################
 ######## how would we partition data into behavioral states prior to #
-# analyses #
+# analyses ###############################################################
 # for the used data we start by exploring it a bit more to refresh #
 # our memory:
 # we combine track dataframe to use information we have calculated 
@@ -254,10 +256,13 @@ for( i in ters ){
 
 ##########################################################################
 ### Save desired results                                  #
-# I save the steps dataframe with extracted raster values so that I 
+# Save the steps dataframe with extracted raster values so that I 
 # don't have to recreate it when estimating issfs 
+write_rds( df_all, "df_all" )
+
 write_rds( trks_all, "trks_all" )
-# I also save the unscaled raster values as a csv
+
+#Also save the unscaled raster values as a csv
 write.csv( sage_30m, "sage_30m_steps.csv", row.names = FALSE )
 
 #save workspace if in progress
