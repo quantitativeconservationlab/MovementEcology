@@ -1,0 +1,48 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1561\cocoasubrtf600
+{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;\red0\green0\blue233;\red0\green0\blue233;
+}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;\cssrgb\c0\c0\c93333;\cssrgb\c0\c0\c93333;
+}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\sl280\partightenfactor0
+
+\f0\fs24 \cf2 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec3 Metadata for mccaslin_kestrel_final_dataset_archive.csv\ul \
+\
+\ulnone Banding and encounter data for kestrel individuals and corresponding environmental variables. Banding and encounter data acquired from Bird Banding Laboratory FTP site 11 May 2017.  \ul \
+\
+\ulnone Definitions of columns:\
+ID - unique record identifier \
+sex - individual sex\
+E_COND - was the bird encountered alive (A) or dead (D)\
+E_WHO - identity of the individual that encountered bird\
+dist_km - geodesic distance between reported banding and encounter locations calculated by the authors\
+bearing_degs - bearing in degrees between reported \cf2 \outl0\strokewidth0 banding and encounter locations calculated by the authors\
+\cf2 \outl0\strokewidth0 \strokec3 avg_ExtAg - average percentage of agricultural land cover in the 4 km wide strip surrounding the path between banding and encounter location\
+extB - percentage of agricultural land cover in the 4 sqkm area surrounding the banding lcoation \
+\pard\pardeftab720\sl280\partightenfactor0
+\cf2 \outl0\strokewidth0 extE - percentage of agricultural land cover in the 4 sqkm area surrounding the encounter location\
+diffAg - difference between extE and extB\
+\
+B_TAVG - difference in average monthly temperature in the banding year from average monthly temperature for the same month during baseline period 1951-1980 (in degrees Celsius) at the banding location\
+\
+B_TMIN - \cf2 difference in minimum monthly temperature in the banding year from average minimum monthly temperature for the same month during baseline period 1951-1980 (in degrees Celsius) at the banding location\
+\
+B_TMAX - difference in maximum monthly temperature in the banding year from average maximum monthly temperature for the same month during baseline period 1951-1980 (in degrees Celsius) at the banding location\
+\
+\cf2 dispType30 - dispersal type using 30km break point: 1= long-distance, 0 = short-distance\
+dispType25 - \cf2 dispersal type using 25km break point: 1= long-distance, 0 = short-distance\cf2 \
+\
+B_LAT_DD_10MINBLOCK, \cf2 B_LON_DD_10MINBLOCK, E_LAT_DD_10MINBLOCK, E_LON_DD_10MINBLOCK - latitude/longitude of the center of the 10-minute block of banding or encounter location, including for those locations reported with a higher precision\
+\
+bearing_10MINBLOCK - bearing in degrees between the centers of the 10 minute blocks of the banding and encounter locations\
+\
+dist_km_10minblock - distance in km between the centers of the 10 minute blocks of the banding and encounter locations\
+\cf2 \
+E_WHO_BIN - identity of who encountered bird, grouped into two categories - Public (includes E_WHO Public or Other) or Researcher (includes E_WHO Agency or Bander)\
+\cf2 \outl0\strokewidth0 \strokec3 \
+\pard\pardeftab720\sl280\partightenfactor0
+\cf2 Additional definitions, including additional information on location precision and 10 minute blocks, and codes used in variables not listed in this file can be found in the BBL encounter code manual:\ul \
+{\field{\*\fldinst{HYPERLINK "https://www.pwrc.usgs.gov/BBL/manual/enc.cfm"}}{\fldrslt https://www.pwrc.usgs.gov/BBL/manual/enc.cfm}}}

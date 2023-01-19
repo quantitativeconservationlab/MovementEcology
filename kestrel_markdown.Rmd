@@ -1,0 +1,77 @@
+---
+title: "kestrel data"
+author: "Trevor Caughlin"
+date: '2022-04-14'
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(fitdistrplus)
+library("HyperbolicDist")
+```
+
+## Dispersal
+
+In this presentation, we will be modeling dispersal of American Kestrels using data from McCaslin 2020.
+
+## Data details
+
+- Banding and encounter data from the US Geological Survey's Bird Banding Laboratory
+- All kestrels banded in the United States or Canada from 1961 to 2015
+- n=329,987 kestrels banded,5,329 (1.6%) of those birds were subsequently reported. 
+- define natal dispersers as ‘local’ (nestling) or ‘hatch year’ birds banded during the breeding season (1 April–15 August) and encountered during the breeding season 1 year later.
+
+## Load the data
+```{r cars, echo = TRUE}
+kestrels=read.csv("mccaslin_kestrel_final_dataset_archive.csv")
+hist(kestrels$dist_km)
+```
+
+What do these data tell us about natal dispersal for kestrels?
+
+## Fit gamma regression
+To quantify effects of covariates, we will use a gamma regression to model distance.
+Note that the original paper used a cut off of 30 km to define long vs. short dispersal.
+
+```{r gamma}
+ldd_kestrels<-kestrels[which(kestrels$dist_km>30),]
+hist(ldd_kestrels$dist_km)
+#extB - percentage of agricultural land cover in the 4 sqkm area surrounding the encounter lcoation
+gamma_model<-glm(dist_km~extE,family = Gamma(link = "log"),data=ldd_kestrels)
+summary(gamma_model)
+```
+
+What are some of the advantages and disadvantages of modeling with a gamma distribution?
+
+**In class activity: fit a gamma model to one or more of the covariates. What do your results show?**
+
+## How much better do the fat-tailed distributions fit, relative to the gamma?
+
+```{r distribution}
+
+dist_nonzero<-kestrels$dist_km[which(kestrels$dist_km>0)]
+#removing zero values to enable fit of gamma
+
+gamma_fit<-fitdist(dist_nonzero,distr="gamma")
+
+#visually explore fit:
+curve(dgamma(x,shape=gamma_fit[1]$estimate[1],rate=gamma_fit$estimate[2]),from=0,to=1000,xlab="Dispersal distance (km)",ylab="Probability density")
+
+
+log_sech_fit<-hyperbFit(dist_nonzero)
+
+curve(dhyperb(x,Theta=log_sech_fit$Theta),from=0,to=1000,add=T,col="red")
+
+#calculate fit using AIC
+
+AIC_log_sech_fit<-2*4-2*log_sech_fit$maxLik
+AIC_gamma<-gamma_fit$aic
+
+```
+
+**Assignment**: using the half-cauchy distribution in the extraDistr package [https://www.rdocumentation.org/packages/extraDistr/versions/1.9.1/topics/HalfCauchy] fit a half-cauchy distribution to the kestral natal dispersal data.
+
+1) calculate AIC and compare with the log-sech and gamma distribution. Which distribution provides the best fit to the data?
+
+2) Add a curved line for the half-cauchy to the plot. How does the visual fit of the data compare?
+
