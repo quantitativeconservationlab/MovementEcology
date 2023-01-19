@@ -9,7 +9,7 @@
 # Data were collected for multiple individuals and at #
 # different frequencies including 2 sec intervals when the individuals#
 # were moving (every 2-3 days), and 30min? fixes otherwise to define #
-# breeding season home range. # Frequency shifted to hourly once #
+# breeding season range. # Frequency shifted to hourly once #
 # individuals left their breeding grounds. #
 #################################################################
 
@@ -17,7 +17,7 @@
 
 # Install new packages from "CRAN" repository if you don't have them. # 
 install.packages( "tidyverse" ) #actually a collection of packages 
-install.packages( "sp" )
+#install.packages( "sp" )
 install.packages( "amt" )
 #trying to install amt directly from github
 install.packages( "devtools")
@@ -72,7 +72,7 @@ load_data <- function( path ){
 }
 
 #apply function to import all files as list of databases:
-dataraw <- load_data( paste0(datapath, 'allindvs/') )
+dataraw <- load_data( paste0(datapath, 'allindvs/2021/') )
 #Note that the files are all in a subdirectory
 head(dataraw)
 # Import trapping records with details of when radiotrackers were 
@@ -140,7 +140,7 @@ unique(records$territory)
 # time to fix information # 
 # Start by viewing what those look like in the dataset #
 
-hist( dataraw$vdop, breaks = 50 )
+hist( dataraw$vdop, breaks = 5 )
 hist( dataraw$hdop, breaks = 50 )
 hist( dataraw$time_to_fix )
 
@@ -179,14 +179,15 @@ dim( dataraw ) - dim( datadf )
 # Data are stored in year, month, day, hour, minute, second format in our data. 
 # We define correct format with lubridate 
 datadf$date <- lubridate::ymd_hms( datadf$GPS_YYYY.MM.DD_HH.MM.SS,
-              tz = "MST" )
+              tz = "UTC" )
+datadf$date <- lubridate::with_tz( datadf$date, tz = "MST" )
 # and create new column where we convert it to posixct
 datadf$ts <- as.POSIXct( datadf$date )
 #view
 head( datadf ); dim( datadf )
 
 # # check if any data are missing
-# all( complete.cases( datadf ) )
+all( complete.cases( datadf ) )
 # # none so we can move on
 
 # we also add month and day of year information using lubridate
@@ -324,17 +325,17 @@ trks
 # # Note we created two other groups of tibbles for the breeding season
 # # and migrating season #
 # # Plot step lengths
-# for( i in 1:dim(trks)[1]){
-#   a <-  steps( trks$breeding[[i]] ) %>% 
-#   #a <-  steps( trks$migrating[[i]] ) %>% 
-#     mutate( jday = lubridate::yday( t1_ ) ) %>% 
-#     group_by( jday ) %>% 
-#     summarise( sl_ = log( sum(sl_) ) ) %>% 
-#     ggplot(.) + theme_bw(base_size = 17) +
-#     labs( title = paste0('individual =', trks$id[i]) ) +
-#     geom_line( aes( y = sl_, x = jday) )
-#   print(a)
-# }
+for( i in 1:dim(trks)[1]){
+  a <-  steps( trks$breeding[[i]] ) %>%
+  #a <-  steps( trks$migrating[[i]] ) %>%
+    mutate( jday = lubridate::yday( t1_ ) ) %>%
+    group_by( jday ) %>%
+    summarise( sl_ = log( sum(sl_) ) ) %>%
+    ggplot(.) + theme_bw(base_size = 17) +
+    labs( title = paste0('individual =', trks$id[i]) ) +
+    geom_line( aes( y = sl_, x = jday) )
+  print(a)
+}
 
 # We focus on breeding season data:
 # Estimate sampling rate for each individual by looping through 
@@ -349,12 +350,12 @@ sumtrks[[1]]
 trks.all <- trks %>% mutate(
   steps = map( breeding, function(x) 
     x %>%  track_resample( rate = seconds(5), 
-                           tolerance = seconds(5)) %>% 
+                           tolerance = seconds(4)) %>% 
       steps_by_burst() ) )
 #view
 trks.all
 
-trks.all[[2]]
+trks.all[[4]]
 #note that this creates a new set of tibbles called steps - that uses
 # the breeding season data
 
