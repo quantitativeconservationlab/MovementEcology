@@ -317,11 +317,26 @@ trks <- trks %>% mutate(
   migrating = map( data, ~ filter(., x_ >= xmax ) ) )
 
 trks <- trks %>% mutate(
-  breeding = map( data, ~ filter(., y_ < ymax ) ),
-  migrating = map( data, ~ filter(., y_ >= ymax ) ) )
+  breeding = map( breeding, ~ filter(., y_ < (ymax + 5000) ) ),
+  migrating = map( migrating, ~ filter(., y_ >= ymax ) ) )
 
-#view
-trks
+#some individuals come back to overwinter at the NCA and so #
+# we need to remove those records as well #
+# we do so using month column to remove anything after June
+trks <- trks %>% mutate(
+  breeding = map( breeding, ~filter(.), mth < 7 )
+)
+#we check that it worked for our breeding data
+for( i in 1:dim(trks)[1]){
+  a <- as_sf_points( trks$breeding[[i]] ) %>% 
+    ggplot(.) + theme_bw(base_size = 17) +
+    labs( title = paste0('individual =', trks$id[i]) ) +
+    geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
+    geom_sf() 
+  print(a)
+} 
+#still need to look at a couple of individuals in more detail
+
 # # Note we created two other groups of tibbles for the breeding season
 # # and migrating season #
 # # Plot step lengths
@@ -464,15 +479,15 @@ trks.steps %>% #filter( id == 1 ) %>%
 #############################################################################
 # Saving relevant objects and data ---------------------------------
 #save breeding season data (not thinned)
-write_rds( trks.breed, "trks.breed")
+write_rds( trks.breed, "Data/trks.breed")
 #save breeding season data (turned into steps)
-write_rds( trks.steps, "trks.steps" )
+write_rds( trks.steps, "Data/trks.steps" )
 #save breeding season data (thinned)
-write_rds( trks.thin, "trks.thin" )
+write_rds( trks.thin, "Data/trks.thin" )
 #save breeding season data (steps thinned)
-write_rds( trks.steps30, "trks.steps30" )
+write_rds( trks.steps30, "Data/trks.steps30" )
 #save migration data (unthinned)
-write_rds( trks.mig, "trks.mig" )
+write_rds( trks.mig, "Data/trks.mig" )
 
 #save workspace in case we need to make changes
 save.image( "TracksWorkspace.RData" )
