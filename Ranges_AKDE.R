@@ -27,11 +27,11 @@ library(ctmm )#for more detailed functionality
 #load cleaned data:
 #download full data for breeding season monitoring of prairie #
 # falcons at the Birds of Prey NCA
-trks.breed <- read_rds( "trks.breed" )
+trks.breed <- read_rds( "Data/trks.breed" )
 #view
 trks.breed
 #download the thinned (30min) data
-trks.thin <- read_rds( "trks.thin" )
+trks.thin <- read_rds( "Data/trks.thin" )
 #view
 trks.thin
 #check class
@@ -88,6 +88,7 @@ ids <- unique( trks.thin$territory )
 #create objects to store results
 svf.t <- list()
 ctmm.t <- list()
+#xlimz <- c(0,36 %#% "hour" )
 #set plot parameters
 par( mfrow = c(3,3))
 #loop through all individuals 
@@ -101,7 +102,7 @@ for( i in 1:length(ids)){
   #Calculate empirical variograms:
   svf.t[[i]] <- variogram( ctmm.t[[i]] )
   #plot variograms for each individual
-  plot( svf.t[[i]] )
+  plot( svf.t[[i]])#, xlim =  xlimz )
 }
 # Note how they are unique for each individual. This supports 
 # the authors suggestions to estimate unique movement models
@@ -123,7 +124,7 @@ m.best <- list()
 # possible movement models for each individual and then #
 # using AIC to pick a best model from the model choices #
 # we also plot the empirical variograms vs the model results #
-for( i in 1:length(ids)){
+for( i in 1:2){#length(ids)){
   print( i )
   #use empirical variogram estimated in the previous step 
   # as a way of guiding the choice of movement model
@@ -141,8 +142,8 @@ names( m.best ) <- ids
 
 #define plotting parameters:
 par(mfrow = c(2,2))
-#Nowo compare top model choice against traditional KDE
-for( i in 1:length(ids) ){
+#Now compare top model choice against traditional KDE
+for( i in 1:2){#length(ids) ){
   #trace progress:
   print(i)
   # add basic IID model to model list
@@ -171,7 +172,7 @@ akde.uw <- list()
 akde.w <- list()
 kde.iid <- list()
 # We loop through each individual to estimate ranges for each option:
-for( i in 1:length(ids) ){
+for( i in 1:2){#length(ids) ){
   print(i)
   # using the top movement model without weights
   akde.uw[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]][[1]] )
@@ -184,7 +185,7 @@ for( i in 1:length(ids) ){
 
 #plot estimate ranges comparing output for each option:
 par(mfrow = c(3,2))
-for( i in 1:length(ids) ){
+for( i in 1:2){#length(ids) ){
   print(i)
   plot( ctmm.t[[i]], akde.w[[i]] )
   title( paste("Weighted best model", ids[i]) )
