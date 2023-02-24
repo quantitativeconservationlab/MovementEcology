@@ -269,9 +269,13 @@ ggplot() +
   geom_sf( data = as_sf_points( subset( trks.thin, id == 2)), 
            col = "red" )
 
-# What if you want to use atm for all individuals?
-# Modify code here:
-# 
+
+##### What if you want to use atm for all individuals? #######
+##### don't try this in class. It will take a long time #
+akde_all <- trks.thin %>% nest( data = -"id" ) %>% 
+  mutate( hr_akde_all = map( data, ~hr_akde( ., 
+              model = fit_ctmm(., "auto" ),
+                levels = 0.95 ) ) )
 # 
 
 ###########################################################
@@ -283,9 +287,11 @@ save( akde.w,file="../ctmm_akde_w.rda")
 save( akde.uw,file="../ctmm_akde_uw.rda")
 save( kde.iid,file="../ctmm_akde_iid.rda")
 #save range for individual estimated using atm
-write_rds( akde_auto, "akde_auto")
+write_rds( akde_auto, "Data/akde_auto") 
+#save range for all individuals in atm
+write_rds( akde_all, "Data/akde_all" )
 #save range for al individuals estimated with ctmm
-write_rds( akde.w, "weighted_akdes" )
+write_rds( akde.w, "Data/weighted_akdes" )
 #save workspace if in progress
 save.image( 'AKDEresults.RData' )
 ############# end of script  ##################################

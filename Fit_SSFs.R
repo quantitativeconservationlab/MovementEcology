@@ -34,9 +34,9 @@ library( glmmTMB ) # for analysis
 #### Load or create data -----------------------------------------
 
 #load 30m steps estimated for all individuals
-trks.steps <- read_rds( "trks.steps30" )
+trks.steps <- read_rds( "Data/trks.steps30" )
 # load points also so that we can combine data
-trks <- read_rds( "trks.thin" )
+trks <- read_rds( "Data/trks.thin" )
 #view
 head( trks.steps )
 
@@ -50,7 +50,7 @@ head( trks )
 NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
 
 # #import sagebrush raster with raster:
-sagebrush <- raster::raster( "Z:/Common/QCLData/Habitat/NLCD/Sage_2007_2018/nlcd_sage_2018_mos_rec_v1.img" )
+sagebrush <- raster::raster( "Z:/Common/QCLData/Habitat/NLCD_new/TimeSeriesCover/Sagebrush/Sagebrush_2009_2020/rcmap_sagebrush_2020.img")
 #visualize with either rasterVis or terra::plot:
 rasterVis::levelplot( sagebrush )
 #view
@@ -79,7 +79,7 @@ sage_cropped
 sage_cropped[ sage_cropped > 100 ] <- NA
 #Plot sagebrush
 rasterVis::levelplot( sage_cropped )
-
+terra::plot(sage_cropped)
 #extract individual ids
 ids <- unique(trks$territory)
 # to create random steps, we start by nesting our data using purr:
@@ -128,17 +128,40 @@ sage_30m
 # What proportion of our data are missing values
 sum( is.na( sage_30m ))/ length( sage_30m )
 
+#extract at 300 m resolution
+sage_300m <- raster::extract( x = sage_cropped, 
+                              steps_trans,
+                             method = "simple", buffer = 150, 
+                             fun  = mean, na.rm = TRUE )
+
+#check
+sage_300m
+# What proportion of our data are missing values
+sum( is.na( sage_300m ))/ length( sage_300m )
+
 # We append our predictor estimates to the original steps tibble:
-df_all <- cbind( stepsdf, sage_30m )
+df_all <- cbind( stepsdf, sage_30m, sage_300m )
 # Scale predictors 
 df_all$sage_30m <- scale( df_all$sage_30m )
+df_all$sage_300m <- scale( df_all$sage_300m )
 #replace missing values with mean, which is 0 after they have been scaled
 df_all$sage_30m[ is.na(df_all$sage_30m) ] <- 0
+df_all$sage_300m[ is.na(df_all$sage_300m) ] <- 0
 # we also assign weights to available points to be much greater than #
 # used points
 df_all$weight <- 1000 ^( 1 - as.integer(df_all$case_ ) )
 #check
 head( df_all )
+
+# remove individuals with low sample size 
+remv <- c( 1,3,7)
+df_red <- df_all %>% 
+  filter( !(id %in% remv ) )
+tail( df_red)
+unique( df_red$id)
+
+#check correlation between two scale
+cor( df_red$sage_300m, df_red$sage_30m )
 #### end data prep #############
 ###########################################################################
 ##### analyse data  ##########
@@ -151,22 +174,40 @@ head( df_all )
 
 # we start by defining the model without running it, which let's us
 # fit the large variance to the random ID intercepts
-m1.struc <- glmmTMB( case_ ~ sage_30m +  
+m1.struc <- glmmTMB( case_ ~  sage_300m + 
                    #define random effects
                    ( 1| step_id_ ) + 
-                   ( 1| id ) + ( 0 + sage_30m | id ), 
-                   family = poisson, data = df_all, 
+                   ( 1| id ),# + ( 0 + sage_300m | id ), 
+                   family = poisson, data = df_red, 
                    weights = weight, doFit=FALSE ) 
 
 # fix variance
 m1.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
 # tell it not to change variance
 m1.struc$mapArg <- list( theta = factor( c(NA, 1:2) ) )
-
+#m1.struc$mapArg <- list( theta = factor( c(NA,1) ) )
 #then fit the model
 m1 <- glmmTMB::fitTMB( m1.struc )
 summary( m1 )
 
+#rerun model with 30m scale 
+m2.struc <- glmmTMB( case_ ~  sage_30m + 
+                       #define random effects
+                       ( 1| step_id_ ) + 
+                       ( 1| id ),# + ( 0 + sage_30m | id ), 
+                     family = poisson, data = df_red, 
+                     weights = weight, doFit=FALSE ) 
+
+# fix variance
+m2.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
+# tell it not to change variance
+#m1.struc$mapArg <- list( theta = factor( c(NA, 1:2) ) )
+m2.struc$mapArg <- list( theta = factor( c(NA,1) ) )
+#then fit the model
+m2 <- glmmTMB::fitTMB( m1.struc )
+summary( m2 )
+
+#which scale was better??? 
 ###########################################################
 ##### end ######
 
@@ -207,8 +248,8 @@ ggplot( trks_all, aes( x = jday, fill = as.factor(wk) ) ) +
 # we visualise step lengths and turning angles for each individual 
 trks_all %>%   
   ggplot(.) +
-#  geom_density( aes( x = sl_, fill = as.factor(wk) ), alpha = 0.6 ) +
-  geom_density( aes( x = ta_, fill = as.factor(wk) ), alpha = 0.6 ) +
+  geom_density( aes( x = sl_, fill = as.factor(wk) ), alpha = 0.6 ) +
+#  geom_density( aes( x = ta_, fill = as.factor(wk) ), alpha = 0.6 ) +
 #  geom_density( aes( x = hr, fill = as.factor(wk)), alpha = 0.6 ) +
 #  geom_density( aes( x = speed, fill = as.factor(wk) ), alpha = 0.6 ) +
   #geom_histogram( aes( x = sl_, fill = as.factor(wk) ) ) +
@@ -258,13 +299,14 @@ for( i in ters ){
 ### Save desired results                                  #
 # Save the steps dataframe with extracted raster values so that I 
 # don't have to recreate it when estimating issfs 
-write_rds( df_all, "df_all" )
+write_rds( df_all, "Data/df_all" )
 
-write_rds( trks_all, "trks_all" )
+write_rds( trks_all, "Data/trks_all" )
 
 #Also save the unscaled raster values as a csv
-write.csv( sage_30m, "sage_30m_steps.csv", row.names = FALSE )
-
+write.csv( sage_30m, "Data/sage_30m_steps.csv", row.names = FALSE )
+write.csv( sage_300m, "Data/sage_300m_steps.csv", row.names = FALSE )
 #save workspace if in progress
 save.image( 'SSF_results.RData' )
+
 ############# end of script  ##################################
