@@ -40,40 +40,19 @@ library( glmmTMB ) # for analysis
 #### Load or create data -----------------------------------------
 
 #load the thinned (30min) data for all individuals
-trks.thin <- read_rds( "trks.thin" )
+trks.thin <- read_rds( "Data/trks.thin" )
 #load range for a single individual:
-akde_atm <- read_rds( "akde_auto" )
-#w_akdes <- read_rds( "weighted_akdes" )
-#load range for individuals estimated using atm
-load( "../ctmm_akde_w.rda" ) 
-#check that it loaded the object
-class( akde.w )
+akde_amt <- read_rds( "Data/akde_auto" )
+akde_all <- read_rds( "Data/akde_all" )
 
 #import polygon of the NCA as sf spatial file:
 NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
 
 # define location of your raster file
 
-# #import sagebrush raster with terra:
-# #sagebrush <- terra::rast( "Z:/Common/QCLData/Habitat/NLCD/Sage_2007_2018/nlcd_sage_2018_mos_rec_v1.img" )
-# sagebrush <- terra::rast( raster( "Z:/Common/QCLData/Habitat/NLCD/Sage_2007_2018/nlcd_sage_2018_mos_rec_v1.img" ) )
-# #plot
-# terra::plot( sagebrush )
-# # note that terra thinks the image is categorical, which it isn't
-# # we confirm by converting it to raster and visualizing it with rasterVis
-# rasterVis::levelplot( raster::raster( sagebrush ) )
-
-
-#I don't know how to avoid this at the moment so for now, #
-# I revert back to raster package for importing:
-sagebrush <- raster::raster( "Z:/Common/QCLData/Habitat/NLCD/Sage_2007_2018/nlcd_sage_2018_mos_rec_v1.img" )
-#visualize with either rasterVis or terra::plot:
-rasterVis::levelplot( sagebrush )
+# #import sagebrush raster:
+sagebrush <- raster::raster( "Z:/Common/QCLData/Habitat/NLCD_new/TimeSeriesCover/Sagebrush/Sagebrush_2009_2020/rcmap_sagebrush_2020.img"  )
 #view
-sagebrush
-# #convert to terra object:
-# sagebrush <- terra::rast( sagebrush )
-#check
 sagebrush
 # You can also plot it with the terra package:
 terra::plot( sagebrush )
@@ -87,15 +66,13 @@ sf::st_bbox( NCA_Shape )
 # We define available habitat as area of NCA with a small buffer #
 # around it and draw points from it #
 #create a buffer around the NCA using outline of NCA and sf package:
-NCA_buf <- NCA_Shape %>% sf::st_buffer( dist =5e3 )
+NCA_buf <- NCA_Shape %>% sf::st_buffer( dist =1e4 )
 #create a version that matches coordinates of the predictor raster:
 NCA_trans <- sf::st_transform( NCA_buf, st_crs( sagebrush ) ) 
 #compare outline of trasformed polygon:
 sf::st_bbox( NCA_trans )
 #check extent
 terra::ext( NCA_trans )
-#crop raster to buffered NCA if you have a terra object:
-#sage_cropped <- raster::crop( sagebrush, ext( NCA_trans ) )
 #crop raster to buffered NCA if you have a raster object:
 sage_cropped <- raster::crop( sagebrush, NCA_trans )
 # Now that we have cropped it to the appropriate area it should be faster #
@@ -108,7 +85,7 @@ sage_cropped
 #values greater than 100 are empty so replace with missing
 sage_cropped[ sage_cropped > 100 ] <- NA
 #Plot sagebrush
-terra::plot( sage_cropped, main = "Sagebrush (2018)" )
+terra::plot( sage_cropped, main = "Sagebrush (2020)" )
 #or 
 rasterVis::levelplot( sage_cropped )
 #Note all the missing data for that year!
@@ -125,12 +102,14 @@ terra::density( sage_cropped )
 #you should generally transform the vector data. # 
 
 ##########################################################################
-# We start with a single individual:
+###############  Single individual Example ##################
+###########
 #extract data for individual of interest:
 idv.thin <- trks.thin %>% filter( id == 2 )
 # Extract available points within range of individual and #
 # add used points from track:
-r_one <- amt::random_points( akde_atm, presence = idv.thin )
+r_one <- amt::random_points( akde_amt, n = (dim(idv.thin)[1]*50), 
+                             presence = idv.thin )
 #view
 r_one
 #plot
@@ -145,7 +124,8 @@ plot( r_one )
 # extract values from the raster without loosing accuracy
 class( r_one )
 #convert to sf object defining coordinate column
-r_one_sf <- sf::st_as_sf( r_one, coords = c("x_", "y_"), crs = crstracks )
+r_one_sf <- sf::st_as_sf( r_one, coords = c("x_", "y_"), 
+                          crs = crstracks )
 #now transform to predictor crs:
 r_one_trans <- sf::st_transform( r_one_sf, st_crs(sage_cropped) )
 
@@ -245,21 +225,34 @@ summary( m2.w )
 
 # computation was fairly fast for this individual so we move on to a 
 #population-level analyses
-##### end 1 indiv analyses ####
+##### end single indiv analyses ####
 #########################################################################
-# Population-level RSF
+#################### Population-level RSF #########################
 # We want to determine use within the NCA assuming 10 individuals #
 # is a representative sample. When would this be the case? #
 # When would it not be the case? #
 
 #use buffer to define available area and the tracks for used points:
 # we specify how many available points we want
+# but which is our available area? We start by choosing the entire
+# NCA. What assumptions are we making with this choice?
 r_all <- random_points( NCA_buf, n = (dim(trks.thin)[1] * 10 ), 
                         presence = trks.thin )
 r_all
 plot( r_all )
+
+#let's check that the tracks fall inside the cropped area
+spr <- sf::st_as_sf( trks.thin, coords = c("x_", "y_"), 
+              crs = crstracks )
+spr <- sf::st_transform( spr, st_crs(sage_cropped) )
+spr <- as( st_geometry( spr), Class="Spatial")
+rasterVis::levelplot( sage_cropped, margin = FALSE ) +
+  latticeExtra::layer(sp.lines( spr, col = "yellow",
+                                lwd = 3 ) )
+  
 #convert to sf object defining coordinate column
-r_all_sf <- sf::st_as_sf( r_all, coords = c("x_", "y_"), crs = crstracks )
+r_all_sf <- sf::st_as_sf( r_all, coords = c("x_", "y_"), 
+                          crs = crstracks )
 #now transform to predictor crs:
 r_all_trans <- sf::st_transform( r_all_sf, st_crs(sage_cropped) )
 
@@ -296,10 +289,36 @@ df_all$weight <- 1000 ^( 1 - as.integer(df_all$case_ ) )
 #check
 head( df_all )
 
+#alternatively we can choose to extract available from the estimated #
+# ranges that we obtained for each individual
+#extract individual id numbers:
+idnos <- sort( unique( trks.thin$id )) 
+#check your homerange data
+akde_all
+#now get random points
+df_inds <- akde_all %>% 
+mutate( 
+  rsf_pnts =  map( hr_akde_all,
+            ~ random_points(., n = nrow(.$data)*10, presence=.$data) ) )
+#view
+df_inds
 
+#now unnest the new dataframes to make sure they worked
+rsf_pnts <-  df_inds %>% 
+  dplyr::select( id, rsf_pnts ) %>% 
+  unnest( cols = rsf_pnts ) 
+#check
+head( rsf_pnts );dim(rsf_pnts)
+plot( rsf_pnts )
+
+#now extract predictor variables for these points###
+## Answer: 
+#
+
+#######################################################################
 ##### RSF analyses #################
 
-# Start with amt package
+# Start with amt package  using the NCA as available habitat
 mp1 <- df_all %>%  amt::fit_rsf( case_ ~ sage_30m ) %>% 
             summary()
 
@@ -319,15 +338,9 @@ mp_300m <- glmmTMB( case_ ~ sage_300m,
 
 summary( mp_300m )
 
+#which scale has the most support? How do we choose?
+
 # Interpreting results ###
-# We can use AIC between two models to compare which scale is most #
-# supported by our data. In this case 30m resolution seems to work best#
-# But what about coefficient estimates? Remember that the intercept is #
-# not really interpretable and so we focus on the coefficients #
-# associated with our predictor. Some extra manipulation is #
-# required before we can interpret it. 
-# 
-# 
 # since we only have one predictor we don't have to account for
 # others in the model and can just exponentiate it to compare the #
 # relative intensity or rate of use of two locations that differ by 1 
@@ -336,7 +349,7 @@ summary( mp_300m )
 # other explanatory variables. # 
 exp( glmmTMB::fixef( mp_30m )$cond[2] )
 # this reflects the relative selection strength for choosing sagebrush 
-#suggesting that prairie falcons are 1.56 times more likely to choose
+#suggesting that prairie falcons are 1.24 times more likely to choose
 # sagebrush with cover that is 1 SD higher. 
 # if we want to remind ourselves what the SD for our predictor is
 sd( sage_all_30m, na.rm = TRUE )
@@ -350,6 +363,10 @@ ggplot( . ) +
   geom_density( aes( x = sage_all_30m, 
                      fill = case_, group = case_ ),
                 alpha = 0.5  )
+
+#### can you rerun analysis using the individual-derived points? #####
+# Answer:
+#
 
 ###########################################################
 ### Save desired results                                  #
