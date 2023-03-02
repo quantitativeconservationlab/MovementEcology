@@ -16,7 +16,7 @@
 # Clean your workspace to reset your R environment. #
 rm( list = ls() )
 
-install.packages( "circular" )
+#install.packages( "circular" )
 # load packages relevant to this script:
 library( tidyverse ) #easy data manipulation
 # set option to see all columns and more than 10 rows
@@ -25,74 +25,123 @@ library( amt )
 library( sf )
 library( glmmTMB )
 library( circular ) #for plotting von mises distribution
-
+library( raster )
 #####################################################################
 ## end of package load ###############
 
 ###################################################################
 #### Load or create data -----------------------------------------
 
-#load 30m steps estimated for all individuals
-trks <- read_rds( "trks_all" )
-#check
-class(trks)
-#now import dataframe with sagebrush values
+# #load steps at 5sec resolution
+trks <- read_rds( "Data/trks.steps" )
+# #check
+head(trks)
+#OR if wanting to work with 30min resolution, load the 
+# dataframe that we created in Fit_SSFs.R script:
 dfraw <- read_rds( "df_all" )
 #check
 class( dfraw )
 #import polygon of the NCA as sf spatial file:
 NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
+# #import sagebrush raster with raster:
+sagebrush <- raster::raster( "Z:/Common/QCLData/Habitat/NLCD_new/TimeSeriesCover/Sagebrush/Sagebrush_2009_2020/rcmap_sagebrush_2020.img")
 
 
 #######################################################################
 ######## preparing data ###############################################
-dim(dfraw)
-#check dataframe
-head( df );dim(df)
-# now tks
-head( trks ); dim(trks)
-
-# Remember in our prior script we created the random steps, which were #
-# fit using step-length and turning angle distributions. #
-df <- dfraw
-# we check sample sizes for each individual
-table( df$id)
-#select ids those with poor sample size
-remids <- c( 1,3,7)
-# use those to remove their data from dataframe:
-df <- df %>%  
-  dplyr::filter( !(id %in% remids) )
-#check 
-dim(df)
-
+# # now tks
+ head( trks ); dim(trks)
 # We cannot have missing values for the predictors so we 
 # need to remove steps with missing ta_ 
 #step ids are not unique to individuals so we create a unique id:
-df$id_step <- paste0( df$id, df$step_id_ )
+trks$id_step <- paste0( trks$id, trks$burst_ )
 head( df);dim(df)
 
+#we use either trks or df_all depending on our preference
+df <- trks
+#
 #which steps have missing ta values:
 df$id_step[ which( is.na(df$ta_) ) ]
 #how many don't:
 length( df$id_step[ which( !is.na(df$ta_) ) ] )
-
-# which steps have missing sl values:
-df$id_step[ which(is.na(df$sl_)) ] 
-#none so we focus on ta only
-
-# we record ids for those with missing ta values:
-rem <- df$id_step[ which(is.na(df$ta_)) ] 
-
-#remove them from dataframe
-df <- df %>%  
-  dplyr::filter( !(id_step %in%  rem ) )
-
 dim(df)
+df <- df[which( !is.na(df$ta_) ), ]
+head(df)
+#which steps are 0 length
+unique( df$id_step[ which( df$sl_ == 0) ] )
+
 #recheck sample size:
 table( df$id)
+head(df)
 
-### end data prep ####
-######### analysis for single individual using amt #################
+### reextract sagebrush if using 5 sec resolution #######
+## otherwise you already have it #
+#get coordinates from shapefile
+crstracks <- sf::st_crs( NCA_Shape )
+#create a buffer around the NCA using outline of NCA and sf package:
+# we are more generous than with our RSF analyses
+NCA_buf <- NCA_Shape %>% sf::st_buffer( dist =1e4 )
+#create a version that matches coordinates of the predictor raster:
+NCA_trans <- sf::st_transform( NCA_buf, st_crs( sagebrush ) ) 
+#crop raster to buffered NCA:
+sage_cropped <- raster::crop( sagebrush, NCA_trans )
+#values greater than 100 are empty so replace with missing
+sage_cropped[ sage_cropped > 100 ] <- NA
+#Plot sagebrush
+rasterVis::levelplot( sage_cropped )
+terra::plot(sage_cropped)
+
+# to create random steps, we start by nesting our data using purr:
+steps_all <- df %>% nest( data = -"id" )
+#view
+steps_all
+#we then estimate random steps
+steps_all <- steps_all %>% 
+  dplyr::mutate( rnd = lapply( data, function(x){
+    amt::random_steps( x ) } ) )
+#now unnest the new dataframes to make sure they worked
+stepsdf <- steps_all %>% dplyr::select( id, rnd ) %>% 
+  unnest( cols = rnd ) 
+# We start by turning it to sf object, assigning the correct projection
+steps_sf <- sf::st_as_sf( stepsdf, coords = c("x2_", "y2_"), 
+                          crs = crstracks )
+# We then transform the crs:
+steps_trans <- sf::st_transform( steps_sf, st_crs(sage_cropped) )
+#extracting with raster we can used the sf object directly, you also 
+# have the choice to use a buffer around each point if you want to increase 
+# your resolution:
+sage_30m <- raster::extract( x = sage_cropped, steps_trans,
+                             method = "simple" )
+
+#check
+sage_30m
+# What proportion of our data are missing values
+sum( is.na( sage_30m ))/ length( sage_30m )
+
+# We append our predictor estimates to the original steps tibble:
+df <- cbind( stepsdf, sage_30m )
+df$sage_30m <- scale( df$sage_30m )
+df$sage_30m[ is.na(df$sage_30m) ] <- 0
+
+# we also assign weights to available points to be much greater than #
+# used points
+df$weight <- 1000 ^( 1 - as.integer(df$case_ ) )
+
+#check
+head( df)
+### end adding sagebrush and weight ####
+# we check sample sizes for each individual
+table( df$id)
+# #select ids those with poor sample size
+# remids <- c( 1,3,7)
+# # use those to remove their data from dataframe:
+# df <- df %>%  
+#   dplyr::filter( !(id %in% remids) )
+# #check 
+# dim(df)
+
+### end data prep #######
+######## analysis for single individual using amt #################
 # Estimate empirical distributions for individual of interest:
 emp_d_sl <- df %>% dplyr::filter( id == 4 ) %>%
   dplyr::select( sl_ ) %>% 
@@ -199,12 +248,12 @@ df %>% dplyr::filter( id == 4 ) %>%
 
 #plot empirical gamma for step lengths
 par( mfrow = c(2,1))
-plot( density( dgamma( 1:30000, shape = emp_d_sl$params$shape,
+plot( density( dgamma( 1:300, shape = emp_d_sl$params$shape,
                        scale = emp_d_sl$params$scale ) ) , 
 #      xlim = c( 0, 0.001)
       )
 #plot updated gamma distribution:
-plot( density( dgamma( 1:30000, shape = updated_sl$params$shape,
+plot( density( dgamma( 1:300, shape = updated_sl$params$shape,
                        scale = updated_sl$params$scale ) ),
               lwd = 3, 
 #     xlim = c( 0, 0.001) 
@@ -235,16 +284,16 @@ plot( density( dvonmises( seq(from = -1 * pi, to = pi, length.out = 100),
 # long step at double that. # 
 
 # estimate likelihood for short step:
-short <- dgamma(5000, 
+short <- dgamma(50, 
                  shape = updated_sl$params$shape,
                  scale = updated_sl$params$scale)
 #now for long step
-long <- dgamma(10000, 
+long <- dgamma(200, 
                   shape = updated_sl$params$shape,
                   scale = updated_sl$params$scale)
 # calculate selection:
 short/long
-# individual is 3.5 times more likely to take the shorter than the 
+# individual is 47 times more likely to take the shorter than the 
 # longer step when all habitat conditions are the same
 ####end analysis of single individual ###
 #######  fit movement model for all individuals in glmmTMB ############
@@ -272,7 +321,7 @@ m1.struc$mapArg <- list( theta = factor( NA ) )
 m1 <- glmmTMB::fitTMB( m1.struc )
 #view results
 summary( m1 )
-# results are similar, except that sl_ parameter is not 'significant'
+# results are similar
 
 # After testing our model on a single individual we move to estimate #
 # parameters for all individuals:
