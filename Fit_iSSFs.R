@@ -8,7 +8,7 @@
 #                                                                #
 # We use landcover data from the National Geospatial Data Asset  #
 # https://www.mrlc.gov                                           #
-# Habitat predictors include 2018 estimates of sagebrush cover   #
+# Habitat predictors include 2020 estimates of sagebrush cover   #
 ###################################################################
 
 ################## prep workspace ###############################
@@ -36,7 +36,7 @@ library( raster )
 trks <- read_rds( "Data/trks.steps" )
 # #check
 head(trks)
-#OR if wanting to work with 30min resolution, load the 
+# OR if wanting to work with 30min resolution, load the 
 # dataframe that we created in Fit_SSFs.R script:
 dfraw <- read_rds( "df_all" )
 #check
@@ -59,7 +59,8 @@ head( df);dim(df)
 
 #we use either trks or df_all depending on our preference
 df <- trks
-#
+#df <- dfraw
+
 #which steps have missing ta values:
 df$id_step[ which( is.na(df$ta_) ) ]
 #how many don't:
@@ -123,10 +124,6 @@ df <- cbind( stepsdf, sage_30m )
 df$sage_30m <- scale( df$sage_30m )
 df$sage_30m[ is.na(df$sage_30m) ] <- 0
 
-# we also assign weights to available points to be much greater than #
-# used points
-df$weight <- 1000 ^( 1 - as.integer(df$case_ ) )
-
 #check
 head( df)
 ### end adding sagebrush and weight ####
@@ -177,12 +174,12 @@ summary( m_sg )
 # We focus on differences in sagebrush #
 s1 <- data.frame( 
   sage_30m = 0, 
-  sl_ = 5000,
+  sl_ = 20,
   ta_ = 0 )
 # now a second dataframe with higher sagebrush
 s2 <- data.frame( 
   sage_30m = 1, 
-  sl_ = 5000,
+  sl_ = 20,
   ta_ = 0 )
 
 # now we use log_rss() to calculate log-RSS 
@@ -194,7 +191,7 @@ lr1$df
 # so that we  can make a plot of change:
 s3 <- data.frame( 
   sage_30m = seq(from = -1, to = 3, length.out = 100), 
-  sl_ = 5000,
+  sl_ = 20,
   ta_ = 0 )
 
 # Calculate log-RSS
@@ -266,11 +263,11 @@ df %>% dplyr::filter( id == 4 ) %>%
   geom_histogram( aes( x = ta_ ) )
 
 #Von mises empirical distribution of turning angles:
-plot( density( dvonmises( seq(from = -1 * pi, to = pi, length.out = 100), 
+plot( density( circular::dvonmises( seq(from = -1 * pi, to = pi, length.out = 100), 
                           mu = emp_d_ta$params$mu,
                           kappa = emp_d_ta$params$kappa ) ) )
 #updated distribution:
-plot( density( dvonmises( seq(from = -1 * pi, to = pi, length.out = 100), 
+plot( density( circular::dvonmises( seq(from = -1 * pi, to = pi, length.out = 100), 
                           mu = updated_ta$params$mu,
                           kappa = updated_ta$params$kappa ) ) )
 # Note that the kappa parameter in the updated distribution is negative,#
@@ -279,21 +276,20 @@ plot( density( dvonmises( seq(from = -1 * pi, to = pi, length.out = 100),
 
 # We can also use hypothetical locations to interpret how the individual #
 # is moving. we use the updated distribution to estimate the likelihood #
-# under a selection-free step-length distribution of taking a 5,000-m-step #
-# which for our individual at 30 minute resolution is short, and a #
-# long step at double that. # 
+# under a selection-free step-length distribution of taking a step #
+# which for our individual is short, and a long step. # 
 
 # estimate likelihood for short step:
-short <- dgamma(50, 
+short <- dgamma(20, 
                  shape = updated_sl$params$shape,
                  scale = updated_sl$params$scale)
 #now for long step
-long <- dgamma(200, 
+long <- dgamma(100, 
                   shape = updated_sl$params$shape,
                   scale = updated_sl$params$scale)
 # calculate selection:
 short/long
-# individual is 47 times more likely to take the shorter than the 
+# individual is 5.4 times more likely to take the shorter than the 
 # longer step when all habitat conditions are the same
 ####end analysis of single individual ###
 #######  fit movement model for all individuals in glmmTMB ############
@@ -333,7 +329,7 @@ m2.struc <- glmmTMB( case_ ~ sage_30m +
                        ( 1| step_id_ ) + 
                        ( 1| id ), 
                      family = poisson, data = df, 
-                     weights = weight, doFit=FALSE ) 
+                     doFit=FALSE ) 
 
 # fix variance
 m2.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
