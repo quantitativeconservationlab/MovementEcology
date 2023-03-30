@@ -1,0 +1,442 @@
+---
+title: "Introducing connectivity models"
+author: "Matt Williamson"
+date: '2022-04-12'
+excerpt: This blog works through some of the graph-theoretic properties of wildlife
+  connectivity modeling with examples in R. We start with network metrics in igraph and then move to spatial models using gDistance.
+subtitle: ''
+draft: false
+series: 
+tags: 
+categories: 
+layout: single-sidebar
+output:
+  blogdown::html_page:
+    toc: true
+    toc_depth: 1
+    highlight: tango
+---
+```{r, setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning=FALSE, message=FALSE, fig.width = 6, fig.height = 6
+)
+```
+
+## Graphs and wildlife connectivity
+
+Connectivity describes the degree to which the landscape allows for the movement of genes, individuals, or species to traverse the landscape in order to access resources, find mates, or avoid mortality. As habitats have become increasingly fragmented, conservation practitioners are increasingly focused on developing strategies for maintaining or restoring connectivity between existing habitats or protected areas. Although high resolution telemetry data coupled with various step-selection functions can tell us something about how individuals use the landscape during their daily or seasonal movements, the ability to scale those individual movements to the population- or species-levels or longer temporal scales often requires different approaches. As we discussed, graph theory (or the closely related network or circuit theory) is frequently used as a means of assessing landscape connectivity. The bulk of graph/network analyses in `R` rely on the [`igraph`](https://igraph.org/r/) package (or wrappers that point to functions from `igraph` like [`tidygraph`](https://www.data-imaginist.com/2017/introducing-tidygraph/)). Getting started with spatial graphs is challenging because:
+
+* The number of metrics describing graphs can be overwheliming
+
+* There are __always__ multiple ways to do things in `R`
+
+With those caveats in mind, I hope that by the end of working through this example you will be able to:
+
+* Use georeferenced data to construct simple graphs where edges are based on distance
+
+* Estimate and/or visualize a variety of the metrics described in Rayfield et al. 2016 
+
+* Implement edge thinning and node removal to understand how loss of patches or edges alter the network structure (sensu Urban and Keitt 2001)
+
+```{r eval=FALSE}
+if(!"remotes" %in% installed.packages()) {
+  install.packages("remotes")
+}
+#this code checks if remotes is installed and installs it if not
+
+cran_pkgs = c(
+  "sf",
+  "tidygraph",
+  "igraph",
+  "here",
+  "tmap",
+  "units",
+  "ggraph",
+  "netrankr",
+  "raster",
+  "gdistance",
+  "tidyr",
+  "FedData")
+
+remotes::install_cran(cran_pkgs)
+#remotes install_cran only installs if the packages don't exist or if they need updating
+
+
+```
+
+## Load your libraries and then some data
+
+We'll need a few different libraries to be able to bring in spatial data and then convert it into a graph form, so we'll load those here. Remember that, `?`, followed by the package name can help you access the different helpfiles for each function in the package. Since you all work on things that fly, I thought we'd start by using a dataset on birds. We'll use the 2015 Priority Areas for Conservation (PACs) for the Greater Sage Grouse. PACs represent areas identified as essential for the long-term conservation of the sage-grouse (you can learn more about this dataset [here](https://databasin.org/datasets/88fd5a2706d9443a838f84be1a593ff2/). As such, we might imagine that connectivity among these PACs is also important making them a reasonable choice for our analysis.
+
+```{r loadlibdat}
+library(sf)
+library(igraph)
+library(tidygraph)
+library(tmap)
+library(units)
+library(ggraph)
+
+
+#library(tidyr)
+#library(FedData)
+sg.pacs <- st_read("data/GRSG_2015_USFWS_StatusReview_PACs.shp") %>% 
+  st_make_valid()
+tmap::tmap_mode("view")
+tmap::qtm(sg.pacs, basemaps = leaflet::providers$Stamen.TerrainBackground)
+```
+
+
+If you take a look at the attribute table you'll notice that the shapefile contains information on the sage grouse population associated with each PAC, the broader USFWS managament zones, and the number of acres associated with each PAC. You can see that here:
+
+```{r inspectdata}
+
+head(sg.pacs[,1:9]) #omit the geometry column as we are only interested in the tabular elements here
+```
+
+## Making the data ready for igraph
+
+There are a variety of ways to deal with polygons in network applications (see the `sfnetworks` package), but their value lies primarily in the ease of moving between network diagrams and maps. For the sake of keeping things simple, we're going to convert these polygons into points using `st_centroid`. Ecologically we might argue that we are most interested in the ability of a sage grouse to make it to the center of the PACs as that should be the point furtheset from the 'edge' habitat. We'll do that here. Note that you get a warning about assuming the attributes are constant over geometries - we want that here because we want to maintain the acreage values (even though points don't have area). Also note, that I am using the `filter` command to split the dataset to facilitate speed of analysis and visualization. 
+
+```{r paccentroid}
+
+sg.pacs.cent <- sg.pacs %>% 
+  filter(., MgmtZone == "MZ3") %>% 
+  st_centroid(sg.pacs, of_largest_polygon = TRUE) #we use this to ensure that the point lands in the largest chunk of the PAC if it is a multipolygon
+```
+
+### Building an adjacency matrix
+
+The ability to treat these different PACs as a network relies on defining connections between them. We can do this by defining them _a priori_ using an edge list (see the `?igraph::graph_from_edgelist` help file to learn more about this), but that can be extremely tedious for large networks. An alternative approach is to use an *adjacency matrix* - a matrix with the number of rows and columns equal to the number of nodes in our network. In an *unweighted network* this adjacency matrix has "1s" in each cell where the node pairs (the row and column) are connected and "0's" in all other cells. This, of course, raises the question of how we decide whether two nodes are connected?
+
+For ecologically oriented analyses, one fairly straightforward assumption we might make is to base adjacency on some form of ecologically relevant distance (like maximum dispersal distance, average daily distance traveled). We do this by first estimating all of the pairwise distances between nodes (using `sf::st_distance`) and then using a conditional statement to identify which node-pairs fall within the distance threshold. Once we have our adjacency matrix, we can convert it to a graph object using `tidygraph::as_tbl_graph` and join the attributes using `dplyr::left_join`.
+
+```{r distmat}
+
+sg.pacs.dist <- st_distance(sg.pacs.cent) #returns a matrix of all pairwise distances with units based on the CRS of the dataset
+
+threshold <- units::as_units(50, "km") #using the units package to specify the distance threshold with units
+
+adj.mtx <- sg.pacs.dist < threshold #returns a matrix of TRUE/FALSE
+
+
+adj.mtx <- adj.mtx *1 #R trick for converting TRUE/FALSE matrix into 0,1 matrix
+diag(adj.mtx) <- 0 #the diagonal in adjacency matrix is the "self" connections which we set to 0 because we aren't interested in single site connections
+
+dimnames(adj.mtx) <- list(sg.pacs.cent$UniqueID, sg.pacs.cent$UniqueID) #necessary to allow the joining of node 'attributes' to the adjacency matrix
+
+sg.graph <- as_tbl_graph(adj.mtx, directed = FALSE, nodes = st_drop_geometry(sg.pacs.dist), node_key = "UniqueID") %>% left_join(., sg.pacs.cent, by = c("name" = "UniqueID"))
+
+#Now let's take a look at the resulting graph
+ggraph(sg.graph, 'kk') + 
+    geom_edge_fan(aes(alpha = stat(index)), show.legend = FALSE) + 
+    geom_node_point(aes(size = log(Acres,10), color=Population)) + 
+    theme_graph(foreground = 'steelblue', fg_text_colour = 'white')
+```
+
+### Calculating element metrics
+
+We can use `tidygraphs` to calculate some of the metrics from the Rayfield et al. paper while leveraging the `tidyverse` and `dplyr` verbs. For example, we can calculate several of the 'element' level measures like:
+
+* **Betweenness Centrality**: In a connected graph, there is at least one shortest (there can be more if there multiple, equivalent paths) path connecting every pair of nodes in that network. Betweenness centrality for a given node is the sum of all of the shortest paths that flow through that node.
+
+* **Closeness Centrality** is similar to betweenness centrality, but instead of counting the number of paths through the node, it is based on the total length of the shortest paths through a given node.
+
+* **Degree** reflects the number of connections a node has to other nodes. High values of degree tend to correspond with well-connected nodes (e.g., habitats that are often used as stepping stones) while nodes with low degree values are often isolated or terminal.
+
+In practice, many of these metrics (centralities, degree, etc) are correlated, but tell you slightly different things about the ecological process of interest. So you may want think carefully about how many of these you want to calculate.
+
+```{r metrics}
+
+sg.graph.mets <- sg.graph %>% 
+  activate(nodes) %>% 
+  mutate(., bet.centrality = centrality_betweenness(),
+            close.centrality = centrality_closeness_harmonic(),
+            deg = degree(.))
+
+
+```
+
+We can plot those and look at how they change our perspective of the network by using these new attributes as part of our aesthetics (defined using `aes`, just like in `ggplot2`). You'll notice similar the resulting graphs look when visualized using the different metrics we just calculated (because they are correlated) and how different the graph looks compared to when we made the node size a function of the geographic area.
+
+```{r plotmets}
+
+ggraph(sg.graph.mets, 'kk') + 
+    geom_edge_fan(aes(alpha = stat(index)), show.legend = FALSE) + 
+    geom_node_point(aes(size = bet.centrality, color=Population)) + 
+    theme_graph(foreground = 'steelblue', fg_text_colour = 'white')
+
+ggraph(sg.graph.mets, 'kk') + 
+    geom_edge_fan(aes(alpha = stat(index)), show.legend = FALSE) + 
+    geom_node_point(aes(size = close.centrality, color=Population)) + 
+    theme_graph(foreground = 'steelblue', fg_text_colour = 'white')
+
+ggraph(sg.graph.mets, 'kk') + 
+    geom_edge_fan(aes(alpha = stat(index)), show.legend = FALSE) + 
+    geom_node_point(aes(size = deg, color=Population)) + 
+    theme_graph(foreground = 'steelblue', fg_text_colour = 'white')
+```
+
+### Calculate some higher-order metrics
+
+A **component** of a graph is a set of nodes (or a single node) that may be connected to each other, but are otherwise disconnected from the rest of the network. Metrics that describe components are a means of describing the clustering of connected elements in a network. Components with single node memberships are generally disconnected whereas components with large numbers of members are generally well connected. We can identify the components of the graph and understand their composition using:
+
+```{r compmets}
+comps <- components(sg.graph)
+comps$csize
+comps$membership
+
+```
+
+The **Degree distribution** can tell us something about the 'vulnerability' of network. We can plot the degree distribution and generate some summary statistics using:
+
+```{r netmets}
+hist(degree(sg.graph))
+mean(degree(sg.graph))
+sd(degree(sg.graph))
+```
+
+### Now your turn
+
+Calculate the same metrics for the other management zones. 
+* What is the maximum betweeness centrality for each zone
+* How many componets are there in each of the other zones and how big is the biggest?
+* How does the degree distribution compare across the other zones
+
+## Experimenting
+As we discussed, we might be interested in understanding how changes in the network ultimately affect connectivity. We can do this a few ways. One way might be to alter the distance we use as a threshold and look at how the different metrics change. We use a `for` loop below to recalculate the adjacency matrix based on a variety of distance thresholds. 
+
+```{r disthresh}
+thresholds <- as_units(c(1, 10,25, 50, 100, 150, 250, 500), "km")
+thresh.df <- data.frame(thresh.dist = rep(NA, length(thresholds)),
+                        mean.between = rep(NA, length(thresholds)),
+                        ncomps = rep(NA, length(thresholds)),
+                        mean.deg = rep(NA, length(thresholds)))
+sg.pacs.cent <- sg.pacs %>% 
+  st_centroid(sg.pacs, of_largest_polygon = TRUE) 
+sg.pacs.dist <- st_distance(sg.pacs.cent)
+
+for (i in 1:length(thresholds)){
+  adj.mtx <- sg.pacs.dist < thresholds[i]
+  adj.mtx <- adj.mtx *1
+  diag(adj.mtx) <- 0
+  dimnames(adj.mtx) <- list(sg.pacs.cent$UniqueID, sg.pacs.cent$UniqueID)
+  sg.graph <- as_tbl_graph(adj.mtx, directed = FALSE, nodes = st_drop_geometry(sg.pacs.dist),
+                           node_key = "UniqueID") %>% 
+    left_join(., sg.pacs.cent, by = c("name" = "UniqueID"))
+  thresh.df$thresh.dist[i] <- thresholds[i]
+  thresh.df$mean.between[i] <- mean(betweenness(sg.graph, directed = FALSE))
+  thresh.df$ncomps[i] <- length(components(sg.graph)$csize)
+  thresh.df$mean.deg[i] <- mean(degree(sg.graph))
+}  
+
+thresh.long <- thresh.df %>% 
+  tidyr::pivot_longer(!thresh.dist, names_to = "metric", values_to = "estimate")
+
+ggplot(data = thresh.long, aes(x= thresh.dist, y = estimate)) +
+  geom_line()+
+  facet_wrap(vars(metric)) +
+  ggtitle("Whole Network")
+
+
+```
+
+You can do a similar thing by removing some number of nodes at random. For simplicity sake, I use the same metrics here that we used above and a fixed 250km threshold, but you could certainly track a variety of node-level (rather than network-level) metrics or vary both nodes removed and thresholds. You might also be interested in the effects on specific nodes. We won't do those things here, but you should be able to work out an approach based on the existing code.
+
+```{r randnodes}
+set.seed(1234) #because we are removing nodes at random, we're setting the seed to make sure we get the same results
+node.prop <- c(0.01, 0.1, 0.2, 0.3, 0.4, 0.5) #the proportion of nodes to remove
+
+node.df <- data.frame(nodes.removed = rep(NA, length(node.prop)),
+                        mean.between = rep(NA, length(node.prop)),
+                        ncomps = rep(NA, length(node.prop)),
+                        mean.deg = rep(NA, length(node.prop)))
+
+for (i in 1:length(node.prop)){
+  num.nodes <- floor(node.prop[i] * nrow(sg.pacs)) #number of nodes to remove, floor rounds down
+  rem.indx <- sample(nrow(sg.pacs), num.nodes)
+  sg.pacs.red <- sg.pacs %>% 
+    slice(rem.indx) %>% 
+    st_centroid(., of_largest_polygon = TRUE) 
+  sg.pacs.red.dist <- st_distance(sg.pacs.red)
+  adj.mtx <- sg.pacs.red.dist < units::as_units(250, "km")
+  adj.mtx <- adj.mtx *1
+  diag(adj.mtx) <- 0
+  dimnames(adj.mtx) <- list(sg.pacs.red$UniqueID, sg.pacs.red$UniqueID)
+  sg.graph <- as_tbl_graph(adj.mtx, directed = FALSE, nodes = st_drop_geometry(sg.pacs.red.dist),
+                           node_key = "UniqueID") %>% 
+    left_join(., sg.pacs.red, by = c("name" = "UniqueID"))
+  node.df$nodes.removed[i] <- num.nodes
+  node.df$mean.between[i] <- mean(betweenness(sg.graph, directed = FALSE))
+  node.df$ncomps[i] <- length(components(sg.graph)$csize)
+  node.df$mean.deg[i] <- mean(degree(sg.graph))
+}  
+
+node.long <- node.df %>% 
+  tidyr::pivot_longer(!nodes.removed, names_to = "metric", values_to = "estimate")
+
+ggplot(data = node.long, aes(x= nodes.removed, y = estimate)) +
+  geom_line()+
+  facet_wrap(vars(metric), scales="free_y") +
+  ggtitle("Whole Network")
+```
+## Estimating landscape connectivity using resistance/friction surfaces
+
+All of the metrics treated distances between connected nodes equally  (i.e., there is no edge weight, things are either connected or otherwise). In the articles we've read these past few days, we've seen a variety of efforts to develop models of landscape connectivity (or long-term animal movement) that leverage the computational efficiency of graph theory while attempting to reflect the ecological process more realistically (and in a way that is spatially explicit). Resistance (or friction) surfaces are at the core of these methods and depict the energetic costs (or mortality risks) of moving across the landscape. We'll step through that process here.
+
+### Developing a resistance surface
+For the sake of computational efficiency, we are going to use the PACs from the Columbia Plateau in WA (i.e., MZ6). We're also only going to use 1 potential source of resistance: topographic ruggedness. The primary goal here is to illustrate how you go from a raster dataset to a resistance surface. In an ideal world, you have the results of a step selection function analysis that will inform the exact relationship between the predictor (depicted as a raster) and resistance, but we may not always have that or we may be uncertain about what functional form the relationship might take. Here we calculate the topographic ruggedness, try 3 different functional forms, and convert the data into a transition layer that the `gdistance` package can use for a variety of different analyses. 
+
+```{r resistsurf}
+library(raster)
+library(gdistance)
+library(FedData)
+sg.pacs.cent <- sg.pacs %>% 
+  dplyr::filter(., MgmtZone == "MZ6") %>% 
+  st_centroid(sg.pacs, of_largest_polygon = TRUE)
+
+elev <- get_ned(as(sg.pacs.cent, "Spatial"), "MZ6")
+tri <- terrain(elev, opt="TRI")
+tri.agg <- aggregate(tri, fact = 30, fun=max) #aggregate to make life a little easier
+
+```
+
+*create a concave up functional form* 
+
+To create the concave up form that is usable for resistance modeling, we'll scale the TRI values ${[0,1]}$ so that we are dealing with relative resistance to avoid extremely small transition probabilities (because transition probability is $\frac{1}{resistance}$. Then, we raise that value to a power $>1$ where the size of the exponent determines where the "taking off" portion of the form occurs in the relation between TRI and resistance and how steeply the line rises after that point. _Try changing the exponent to get a sense for this_
+
+```{r conup, warning=FALSE}
+
+tri.agg.scl <- (tri.agg - cellStats(tri.agg, min))/(cellStats(tri.agg, max)-cellStats(tri.agg, min))
+
+conc.up.3 <- (tri.agg.scl)^3
+conc.up.4 <- (tri.agg.scl)^4
+conc.up.8 <- (tri.agg.scl)^8
+
+opar <- par()
+par(mfrow = c(1,3))
+plot(tri.agg.scl, conc.up.3)
+plot(tri.agg.scl, conc.up.4)
+plot(tri.agg.scl, conc.up.8)
+par(opar)
+
+
+```
+
+*create a concave down functional form*
+
+The concave-up functional form reflects a hypothesis that changes in TRI (or any variable contributing to resistance) has a relatively small effect on an animal's ability to traverse the landscape until you reach some 'threshold' at which point movement gets exponentially harder. The alternative view might be that above some minimal value of TRI, it gets substantially harder to move, but after that point there's little difference between higher values of TRI (or other resistance factors) and an animal's ability to move (i.e., there is an asymptotic relationship between the variable and the resistance value). To do this, we again add a 1 (to prevent undefined values), but this time we raise the value to a power <1. The smaller the number, the faster we reach the asymptote. 
+
+```{r condn, warning=FALSE}
+conc.down.001 <- (tri.agg.scl)^0.01
+conc.down.01 <- (tri.agg.scl)^0.1
+conc.down.05 <- (tri.agg.scl)^0.5
+
+opar <- par()
+par(mfrow = c(1,3))
+plot(tri.agg.scl, conc.down.001)
+plot(tri.agg.scl, conc.down.01)
+plot(tri.agg.scl, conc.down.05)
+par(opar)
+```
+
+### Converting resistance to conductance
+
+Note that `gdistance` uses transition layers that are built on conductance (the inverse of resistance) so we need to invert our resistance surface once we've built it. It also requires a special object called a `TransitionLayer`. Then, we have to add 1 to the entire surface. This is necessary because we have to invert the matrix to change resistance values to transition probabilities (i.e., we take 1/resistance matrix). In the places where TRI (or resistance, generally) is 0, this value is undefined so we add a 1 as a means of avoiding that without causing changes to the spatial juxtaposition of resistance values. We accomplish all of this in the call to `transition` below. We also have to make a geographic correction to correct for map distortions that arise from geographic (long/lat) projections combined with a grid that spans a large extent (because the cells change size as you move away from the equator) and/or with directions >4 (to deal with the fact that diagonal connections are longer than horizontal connections.). See`?gdistance::geoCorrection` for more information. Finally, we reproject our centroids to make sure that they are in the same coordinate reference system as the new `TransitionLayer` and convert them to a `SpatialPoints` object.
+
+```{r prepforgdist}
+exp.up.trans <- transition(1/(1+conc.up.4), transitionFunction =  mean, directions=8)
+exp.up.trans.c <- geoCorrection(exp.up.trans, "c", scl=TRUE)
+exp.up.trans.r <- geoCorrection(exp.up.trans, "r", scl=TRUE)
+sg.pacs.sp.c <- sg.pacs.cent %>% 
+  st_transform(., crs=crs(exp.up.trans.c)) %>% 
+  st_geometry(.) %>% 
+  as_Spatial(.)
+sg.pacs.sp.r <- sg.pacs.cent %>% 
+  st_transform(., crs=crs(exp.up.trans.r)) %>% 
+  st_geometry(.) %>% 
+  as_Spatial(.)
+```
+
+### Estimating relevant distances
+
+Now that we have a TransitionLayer we can estimate a number of potentially relevant distances. The function, `raster::pointDistance`, returns the actual geographic distance between two points (note that for planar coordinate systems, you need to change the `lonlat` option to `FALSE`). Several additional functions from the `gDistance` package will calculate distance that account for additional distance due to resistance using the `TransitionLayer` we created in the previous step. The `costDistance` function returns the distance of the least-cost path between the pairs of points and the `commuteDistance` calculates the expected random-walk commute time (the resistance distance multiplied by the volume of the graph). The `rSPDistance` function estimates a value that is intermediate between the two where the least-cost distance is modified by some amount of random exploration based on the `theta` parameter ($0 < \theta < 20$) where larger values approximate the least-cost path and smaller values approximate the fully random-walk of circuit theory. Note that the resulting matrix has a slightly different form, but it essentially relaying the same information (point-wise distances). 
+
+
+```{r distmets}
+
+pointDistance(sg.pacs.sp.c, lonlat=TRUE)
+costDistance(exp.up.trans.c, sg.pacs.sp.c)
+commuteDistance(exp.up.trans.r, sg.pacs.sp.r)
+rSPDistance(exp.up.trans.r,sg.pacs.sp.r, sg.pacs.sp.r, theta = 0.5, totalNet = "total" )
+rSPDistance(exp.up.trans.r,sg.pacs.sp.r, sg.pacs.sp.r, theta = 1, totalNet = "total" )
+
+```
+
+### Estimating least-cost paths
+
+As we discussed in class, the least-cost path is a relatively simple to compute expression of the expected movement path across a landscape. We assume that the organism has "perfect" knowledge of the costs of traversing the landscape and "chooses" a route that minimizes those costs. These assumptions probably hold for species with consistent seasonal movement patterns (like elk moving from winter to summer range). We can identify the least-cost path pretty easily with `gDistance`. We'll focus on two of our PACs to ease computation time.
+ 
+```{r lcost}
+least.cost <- shortestPath(exp.up.trans.c, sg.pacs.sp.c[2,], sg.pacs.sp.c[3,], output = "SpatialLines")
+
+sg.pacs.poly <- sg.pacs %>% 
+  dplyr::filter(., MgmtZone == "MZ6") %>% 
+  st_transform(., crs=crs(exp.up.trans.c)) %>% 
+  st_geometry(.) %>% 
+  as_Spatial(.)
+  
+plot(tri.agg.scl, axes=F)
+plot(sg.pacs.poly[2:3,], add=TRUE)
+points(sg.pacs.sp.c[2:3,], col = "blue")
+lines(least.cost, col="red")
+```
+ 
+As you can see, the least-cost path is only 1-pixel wide, which probably gives a false sense of certainty. Do we really expect that this is the _only_ path an animal might take? From a conservation perspective, we might prefer a strategy with a little lower risk. The Least Cost Corridor provides an alternative to the single-pixel least cost path that allows for a wider area where costs are generally low. To identify the least cost corridor, we need to estimate the accumulated costs as we leave both of our example points and find the places where low costs overlap. We'll do that here. Notice how we use the indexing `[`to change the cells in one raster based on the positions in another.
+ 
+
+```{r acc}
+#estimate the accumulated costs from each point 
+pac.2.acccost <- accCost(exp.up.trans.c, sg.pacs.sp.c[2,])
+pac.3.acccost <- accCost(exp.up.trans.c, sg.pacs.sp.c[3,])
+
+#combine the costs and identify lower threshold for costs
+lcc <- overlay(pac.2.acccost, pac.3.acccost, fun=function(x, y){return(x+y)})
+quantile5 <- quantile(lcc, probs = 0.05, na.rm=TRUE) 
+
+#create the lcc surface
+lcc05 <- lcc #copy the original lcc surface
+values(lcc05) <- NA #set all values in the new surface to NA
+lcc05[lcc < quantile5] <- 1 #look for all cells in lcc with an accumulated cost less than the threshold identified by the quantile call and set the values of those same cells in lcc05 to 1 
+
+opar <- par()
+par(mfrow = c(2,2))
+plot(pac.2.acccost, axes=F)
+plot(pac.3.acccost, axes=F)
+plot(lcc, axes=F)
+plot(tri.agg.scl, axes=F)
+plot(sg.pacs.poly[2:3,], add=TRUE)
+plot(lcc05, add=TRUE, col="green", axes=F, legend=F)
+points(sg.pacs.sp.c[2:3,], col = "blue")
+lines(least.cost, col="red")
+par(opar)
+```
+
+### Mapping flow and introducing stochasticity
+
+For many ecological processes, the assumption of 'perfect' knowledge of the landscape is unlikely to hold (or even make sense). Dispersing juveniles may not know anything about the lands they move across. Ecological processes like fire do not have consciousness and do not make choices, _per se_. In those cases, we might imagine that movement or flows are much more stochastic and that the path ultimately taken is a more probabilistic outcome. In these cases, random-walks and their implementation via circuit theory might be a reasonable choice. In other cases, we might imagine a mix of exploration and exploitation to be a better reflection of how an organism experiences the landscape. Randomized shortest paths provide a means of exploring these different options all within the `gDistance::passage` function simply by manipulating the theta parameter. Remember that as you move from random walks to least cost paths, you'll need to use the appropriate geoCorrection. A quick note - if you are interested in the fully circuit-theoretic implementation, Circuitscape is a program that is implemented in Julia and is much faster than the version implemented by `gDistance`.
+
+```{r passage}
+p0015 <- passage(exp.up.trans.r, sg.pacs.sp.c[2,], sg.pacs.sp.c[3,], theta = 0.0015)
+p015 <- passage(exp.up.trans.r, sg.pacs.sp.c[2,], sg.pacs.sp.c[3,], theta = 0.015)
+p15 <- passage(exp.up.trans.c, sg.pacs.sp.c[2,], sg.pacs.sp.c[3,], theta = 1.5)
+p175 <- passage(exp.up.trans.c, sg.pacs.sp.c[2,], sg.pacs.sp.c[3,], theta = 1.75)
+
+opar <- par()
+par(mfrow = c(2,2))
+plot(log(p0015), col=viridis::inferno(256))
+plot(log(p015), col=viridis::inferno(256))
+plot(log(p15), col=viridis::inferno(256))
+plot(log(p175), col=viridis::inferno(256))
+par(opar)
+```
+
