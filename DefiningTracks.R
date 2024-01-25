@@ -17,15 +17,13 @@
 
 # Install new packages from "CRAN" repository if you don't have them. # 
 install.packages( "tidyverse" ) #actually a collection of packages 
-#install.packages( "sp" )
 install.packages( "amt" )
 #trying to install amt directly from github
-install.packages( "devtools")
-devtools::install_github("jmsigner/amt")
+# install.packages( "devtools")
+# devtools::install_github("jmsigner/amt")
 install.packages( "sf" )
 
 # load packages relevant to this script:
-#library( sp )
 library( tidyverse ) #easy data manipulation and plotting
 # set option to see all columns and more than 10 rows
 options( dplyr.width = Inf, dplyr.print_min = 100 )
