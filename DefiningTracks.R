@@ -46,8 +46,8 @@ workdir <- getwd()
 
 # set path to where you can access your data #
 # Note that the path will be different for your.#
-datapath <- "Z:/Common/PrairieFalcons/"
-
+#datapath <- "Z:/Common/PrairieFalcons/"
+datapath <- "Data/"
 #import GPS data# 
 # Fixes are stored as separate CSV files for each individual
 ## We therefore create a function that imports multiple files at once:
@@ -72,7 +72,7 @@ load_data <- function( path ){
 }
 
 #apply function to import all files as list of databases:
-dataraw <- load_data( paste0(datapath, 'allindvs/2021/') )
+dataraw <- load_data( paste0(datapath, '2021/') )
 #Note that the files are all in a subdirectory
 head(dataraw)
 # Import trapping records with details of when radiotrackers were 
@@ -86,7 +86,8 @@ records <- read.csv( file = paste0( datapath,"survey_0.csv" ),
 head( records ); dim( records )
 
 #import polygon of the NCA as sf spatial file:
-NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
+#NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
+NCA_Shape <- sf::st_read( paste0( datapath, "BOPNCA_Boundary.shp") )
 ##############
 
 #######################################################################
