@@ -19,7 +19,7 @@
 install.packages( "tidyverse" ) #actually a collection of packages 
 install.packages( "amt" )
 #trying to install amt directly from github
-# install.packages( "devtools")
+# install.packages( "devtools" )
 # devtools::install_github("jmsigner/amt")
 install.packages( "sf" )
 
@@ -101,7 +101,7 @@ records <- records %>% dplyr::select( Telemetry.Unit.ID, Sex,
 records
 #convert date to correct format using lubridate
 records$StartDate <- lubridate::mdy_hms( records$Date.and.Time, 
-                                    tz = "MST")
+                                    tz = "MST" )
 # Add a day so that we can ignore records from the trapping day #
 # and start only with  those from the following day:
 records$StartDate <- records$StartDate + lubridate::days(1)
@@ -139,7 +139,7 @@ unique(records$territory)
 # time to fix information # 
 # Start by viewing what those look like in the dataset #
 
-hist( dataraw$vdop, breaks = 5 )
+hist( dataraw$vdop, breaks = 50 )
 hist( dataraw$hdop, breaks = 50 )
 hist( dataraw$time_to_fix )
 
@@ -189,9 +189,10 @@ head( datadf ); dim( datadf )
 all( complete.cases( datadf ) )
 # # none so we can move on
 
-# we also add month and day of year information using lubridate
+# we also add month, week, and day of year information using lubridate
 datadf <- datadf %>% 
   mutate( mth = lubridate::month(date),
+          wk = lubridate::week(date),
           jday = lubridate::yday(date) )
 
 # We need to remove records for fixes that were recorded before the #
@@ -224,17 +225,16 @@ datadf$id <- group_indices( datadf, serial )
 # to learn more. #
 
 # For amt, crs need to be provided using sp package so:
-crsdata <- 4326# sp::CRS( "+init=epsg:4326" )
+crsdata <- 4326#
 # We also want to transform the lat longs to easting and northings #
 # using UTM. For this we need to know what zone we are in. Go: #
 # http://www.dmap.co.uk/utmworld.htm
 # We choose zone 11:
+#note we can also use the crs of the NCA polygon: 
 crstracks <- sf::st_crs( NCA_Shape )#sp::CRS( "+proj=utm +zone=11" )
-#We convert the NCA shapefile to the same projection as our tracks
-#NCA_Shape <- sf::st_transform( NCA_Shape, crstracks )
 # We are now ready to make tracks using atm package
 #We first check sample size #
-table( datadf$id )
+table( datadf$id, datadf$wk )
 # How many individuals have we dropped so far?
 # 
 # We can also get an idea of the data collection for each individual
@@ -270,7 +270,8 @@ trks <- datadf %>%
   amt::make_track( .y = lat, .x = lon, .t = ts, 
     #define columns that you want to keep, relabel if you need:
     id = id, territory = territory,
-    sex = Sex, mth = mth,jday = jday, speed = speed, alt = alt, 
+    sex = Sex, mth = mth, wk = wk,
+    jday = jday, speed = speed, alt = alt, 
     #assign correct crs
     crs = crsdata )
 
@@ -307,8 +308,8 @@ for( i in 1:dim(trks)[1]){
 sf::st_bbox( NCA_Shape )
 #Then use the Eastern-most coordinate to filter out data 
 xmax <- as.numeric(st_bbox(NCA_Shape)$xmax) #627081.5
-#Then use the Eastern-most coordinate to filter out data 
-ymax <- as.numeric(st_bbox(NCA_Shape)$ymax) #+ 500 #627081.5
+#Then use the Northern-most coordinate to filter out data 
+ymax <- as.numeric(st_bbox(NCA_Shape)$ymax) + 10000 #627081.5
 
 #subset those tracks less than as breeding and those > as migrating:
 trks <- trks %>% mutate(
@@ -316,7 +317,7 @@ trks <- trks %>% mutate(
   migrating = map( data, ~ filter(., x_ >= xmax ) ) )
 
 trks <- trks %>% mutate(
-  breeding = map( breeding, ~ filter(., y_ < (ymax + 5000) ) ),
+  breeding = map( breeding, ~ filter(., y_ < ymax ) ),
   migrating = map( migrating, ~ filter(., y_ >= ymax ) ) )
 
 #some individuals come back to overwinter at the NCA and so #
@@ -344,7 +345,7 @@ for( i in 1:dim(trks)[1]){
   #a <-  steps( trks$migrating[[i]] ) %>%
     mutate( jday = lubridate::yday( t1_ ) ) %>%
     group_by( jday ) %>%
-    summarise( sl_ = log( sum(sl_) ) ) %>%
+    summarise( sl_ = log( sum(sl_)) ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
     labs( title = paste0('individual =', trks$id[i]) ) +
     geom_line( aes( y = sl_, x = jday) )
