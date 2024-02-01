@@ -324,8 +324,9 @@ trks <- trks %>% mutate(
 # we need to remove those records as well #
 # we do so using month column to remove anything after June
 trks <- trks %>% mutate(
-  breeding = map( breeding, ~filter(.), mth < 7 )
+  breeding = map( breeding, ~filter(., mth < 7 ) )
 )
+
 #we check that it worked for our breeding data
 for( i in 1:dim(trks)[1]){
   a <- as_sf_points( trks$breeding[[i]] ) %>% 
@@ -335,33 +336,33 @@ for( i in 1:dim(trks)[1]){
     geom_sf() 
   print(a)
 } 
-#still need to look at a couple of individuals in more detail
 
-# # Note we created two other groups of tibbles for the breeding season
-# # and migrating season #
-# # Plot step lengths
-for( i in 1:dim(trks)[1]){
-  a <-  steps( trks$breeding[[i]] ) %>%
-  #a <-  steps( trks$migrating[[i]] ) %>%
-    mutate( jday = lubridate::yday( t1_ ) ) %>%
-    group_by( jday ) %>%
-    summarise( sl_ = log( sum(sl_)) ) %>% 
-    ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
-    geom_line( aes( y = sl_, x = jday) )
-  print(a)
-}
+# We focus on breeding season data for visualization as that is the 
+# one of interest in latest weeks. But you can choose to view migration 
+# data as well. 
 
-# We focus on breeding season data:
-# Estimate sampling rate for each individual by looping through 
+# Despite us setting a sampling (fix) rate for our transmitters, bad weather, 
+# thick canopy etc can cause fix attempts to fail. Our fix rate may therefore 
+# not be exactly what we set it for. If we want measures of distance (step lenghts),
+# or we want to use this data for SSFs, iSSFs or HMMs (movement models) in discrete 
+# time, we need fix rates to be equally spaced. The first step to do this is to
+# estimate sampling rate for each individual by looping through 
 # data using purr function map
 sumtrks <- trks %>%  summarize( 
   map( breeding, amt::summarize_sampling_rate ) )
 #view
 sumtrks[[1]]
+# This plots the actual sampling rate for each individual separately. #
+# Look at the median. What is it?  (units reported on last column)
+# Answer:
+#
+# What about min and max? Those values give you an idea of the breaks in 
+# your data. The median allows you to work out the most common fix rate. 
+# Probably the one of interest for a lot of questions. #
+# we will choose two sampling rates 30min (median value) for Range analysis #
+# and RRFs and 5sec for movement questions, SSFs, iSSFs. 
 
-# Add tibbles with added step lengths calculated by bursts from #
-# breeding season data:
+# Here we take breeding season data and resample at 5 seconds, allowing +- 4sec:
 trks.all <- trks %>% mutate(
   steps = map( breeding, function(x) 
     x %>%  track_resample( rate = seconds(5), 
@@ -370,45 +371,11 @@ trks.all <- trks %>% mutate(
 #view
 trks.all
 
-trks.all[[4]]
 #note that this creates a new set of tibbles called steps - that uses
 # the breeding season data
 
-# Use these new set of steps tibbles to 
-# plot autocorrelation for step lengths for all individuals
-par( mfrow = c( 2,3 ) )
-#based on direction
-for( i in 1:dim(trks.all)[1] ){
-  #extract individual ids
-  idd <- trks.all$id[i]
-  #use tibbles we calculated in steps
-  x <- pull( trks.all[["steps"]][[i]], direction_p )
-  #remove missing data
-  x <- x[!is.na(x)]
-  #calculate autocorrelation function:
-  acf( x, lag.max = 1000,
-       main = paste0( "individual = ",idd ) )
-  #Note you can modify the lag.max according to your data 
-}
-#based on step lengths
-par( mfrow = c( 2,3 ) )
-for( i in 1:dim(trks.all)[1] ){
-  #extract individual ids
-  idd <- trks.all$id[i]
-  #use tibbles we calculated in steps
-  x <- pull( trks.all[["steps"]][[i]], sl_  )
-  #remove missing data
-  x <- x[!is.na(x)]
-  #calculate autocorrelation function:
-  acf( x, lag.max = 1000,
-       main = paste0( "individual = ",idd ) )
-  #Note you can modify the lag.max according to your data 
-}
-# What would be a reasonable rate to resample at?
-# Answer:
-# 
-# I keep the original sampling rate (all autocorrelation as is) and  
-# also resample the 'breeding' tibbles to 30min intervals
+#Now I repeat the process but instead use a 30 min sampling rate for my
+# breeding season data. 
 trks.all <- trks.all %>% 
   mutate(red = map(breeding, function( x ) x %>%  
                track_resample( rate = minutes(30),
@@ -420,29 +387,30 @@ trks.all <- trks.all %>%
 #view
 trks.all
 
-# We can now unnest the dataframes of interest
-#Starting with all breeding season data
+#Now unnest the dataframes of interest
+#Pull out the 5sec breeding season data
 trks.breed <- trks.all %>% dplyr::select( id, breeding ) %>% 
   unnest( cols = breeding ) 
-head( trks.breed )
+tail( trks.breed )
 
-#the step dataframes resampled at 5sec intervals 
+#At that same 5sec intervals pull out the step data (where step lengths
+# and turning angles are calculated )
 trks.steps <- trks.all %>% dplyr::select( id, steps ) %>% 
   unnest( cols = steps ) 
 head( trks.steps )
 
-# Now breeding season data, without autocorrelation:
+# Now for 30min intervals
 trks.thin <- trks.all %>% dplyr::select( id, red ) %>% 
   unnest( cols = red ) 
-head( trks.thin )
+tail( trks.thin )
 
-# Now breeding season data, without autocorrelation:
+# 30min step data
 trks.steps30 <- trks.all %>% dplyr::select( id, red.steps ) %>% 
   unnest( cols = red.steps ) 
-head( trks.steps30 )
+tail( trks.steps30 )
 
 
-# Last all migration data:
+#Also save migration data:
 trks.mig <- trks.all %>% dplyr::select( id, migrating ) %>% 
   unnest( cols = migrating ) 
 head( trks.mig )

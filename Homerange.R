@@ -11,6 +11,8 @@
 
 # load packages relevant to this script:
 library( tidyverse ) #easy data manipulation
+# set option to see all columns and more than 10 rows
+options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt )
 library( sp )
 library( lubridate ) #easy date manipulation
@@ -33,22 +35,47 @@ rm( list = ls() )
 #load( "homerangeresults.RData" )
 
 #load the thinned (30min) data
-trks.thin <- read_rds( "trks.thin" )
+trks.thin <- read_rds( "Data/trks.thin" )
 
 ###############################################################
 ##### Comparing different estimators for occurrence      #######
 ###   distributions for all individuals at once.          ####
 ## We evaluate Minimum Convex Polygons (MCP),             ####
-### Kernel density estimators (KDE) and autocorrelated    ####
-### KDEs (AKDE). The latter does not need prior removal of ###
-#  autocorrelated data.                                     ##
+### Kernel density estimators (KDE).                         ##
 ## Individuals are often sampled for different time periods ##
 # so we also standardize time periods to evaluate the       ##
 ### effects of sampling period on home range estimates.     ##
 ##############################################################
 #check if object has coordinate system in the right format
 get_crs( trks.thin )
-# We start with thinned data, required for MCP and KDE methods:
+#view data
+head( trks.thin)
+
+# MCP and KDE rely on data with no autocorrelation. But
+# how do we check for autocorrelation to determine if # 
+# we need to thin data further?
+# One approach is by calculating autocorrelation functions
+# We do so for each individual using our 30min sampled data:
+par( mfrow = c( 2,3 ) )
+#based on direction
+for( i in 1:dim(trks.thin)[1] ){
+  #select x location of each individual
+  x <- trks.thin %>% filter( id == i ) %>% 
+    #select( x_ )
+    #select( y_ )
+    #select(speed)
+    select( alt )
+  #calculate autocorrelation function:
+  acf( x, lag.max = 1000,
+       main = paste0( "individual = ", i ) )
+  #Note you can modify the lag.max according to your data 
+}
+
+# Are our data autocorrelated?
+# Answer:
+# 
+
+# We start by calculating MCP and KDE for each individual:
 ranges <- trks.thin %>% 
   #we group tibbles for each individual:
   nest( data = -"id" ) %>% 
@@ -64,7 +91,7 @@ ranges <- trks.thin %>%
 #view
 ranges
 
-#plot MCPs:
+#plot KDEs:
 #select tibble 
 ranges %>%
   #choose one home range method at a time
@@ -77,7 +104,7 @@ ranges %>%
   #plot separate for each individual
   facet_wrap( ~id )
 
-#plot KDEs:
+#plot MCPs:
 ranges %>%
   hr_to_sf( hr_mcp, id, n ) %>% 
   ggplot( . ) +
@@ -86,13 +113,9 @@ ranges %>%
   facet_wrap( ~id )
 
 #We can see large variation of home range sizes between individuals#
-# during the breeding season. BUT, we know our sampling wasn't #
+# during the breeding season. Is it real? We know our sampling wasn't #
 # consistent. To account for our variable sampling, we can plot #
 # estimated occurrence distributions weekly. #
-
-#To do this, we first need to work out week of the year. #
-trks.thin <- trks.thin %>%  
-        mutate( wk = lubridate::week( t_) ) 
 
 # recalculate n and homerange estimates
 hr_wk <- trks.thin %>%  
