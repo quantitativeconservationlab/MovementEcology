@@ -49,7 +49,7 @@ trks.thin <- read_rds( "Data/trks.thin" )
 #check if object has coordinate system in the right format
 get_crs( trks.thin )
 #view data
-head( trks.thin)
+head( trks.thin, 50)
 
 # MCP and KDE rely on data with no autocorrelation. But
 # how do we check for autocorrelation to determine if # 
@@ -60,11 +60,11 @@ par( mfrow = c( 2,3 ) )
 #based on direction
 for( i in 1:dim(trks.thin)[1] ){
   #select x location of each individual
-  x <- trks.thin %>% filter( id == i ) %>% 
+  x <- trks.thin %>% dplyr::filter( id == i ) %>% 
     #select( x_ )
-    #select( y_ )
-    #select(speed)
-    select( alt )
+    select( y_ )
+    #select(speed )
+    #select( alt )
   #calculate autocorrelation function:
   acf( x, lag.max = 1000,
        main = paste0( "individual = ", i ) )
@@ -123,7 +123,7 @@ hr_wk <- trks.thin %>%
       nest( data = -c(id, wk) ) %>%
       mutate( n = map_int(data, nrow) ) %>% 
   #remove weeks without enough points
-  filter( n > 10 ) %>% 
+  filter( n > 15 ) %>% 
   mutate( #now recalculate weekly home range
   hr_mcp = map(data, ~ hr_mcp(., levels = c(0.5, 0.9)) ),
   hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.9)) ))
@@ -138,26 +138,26 @@ for( i in 1:length(ids)){
   #extract data for one home range method at a time:
   #mcp
   wp1 <- hr_wk %>% filter( id == ids[i] ) %>% 
-    hr_to_sf( hr_kde, id, wk, n ) %>% 
+    hr_to_sf( hr_kde, id, mth, n ) %>% 
     filter( level == 0.9 )
   #now for mcp
   wp <- hr_wk %>% filter( id == ids[i] ) %>% 
-  hr_to_sf( hr_mcp, id, wk, n ) %>% 
+  hr_to_sf( hr_mcp, id, mth, n ) %>% 
     filter( level == 0.9 ) %>% 
   #plot with ggplot
   ggplot( . ) +
   theme_bw( base_size = 15 ) + 
   # start with mcp which is part of the piping
-  geom_sf(aes( fill = as.factor(wk) ) ) +
+  geom_sf(aes( fill = as.factor(mth) ) ) +
   # to add kde then define separate data object
-  geom_sf( data = wp1, aes( colour = as.factor(wk)), 
+  geom_sf( data = wp1, aes( colour = as.factor(mth)), 
            alpha = 0, size = 2 ) +
     #scale_x_continuous( breaks = c( -117.0,-116.0, -115.0 ) ) +  
   #add used locations:
   geom_sf( data = points ) +
-  labs( title = ids[i], fill = "week", x = "lat") +
+  labs( title = ids[i], fill = "month", x = "lat") +
   #plot separate for each indvidual
-  facet_wrap( ~wk )
+  facet_wrap( ~mth )
  # prints each individual separately
   print( wp )
 }
@@ -186,7 +186,7 @@ hr_area$area_km <- hr_area$area / 1e6
 #plot 
 hr_area %>% 
   #choose desired level 
-  filter( level  == 0.5 ) %>% 
+  filter( level  == 0.9 ) %>% 
   ggplot( aes(col = as.character(id), y = area_km, x = wk )) + 
   geom_line(size = 1.5) + 
   geom_point(size = 4) +

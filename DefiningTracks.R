@@ -364,6 +364,9 @@ sumtrks[[1]]
 
 # Here we take breeding season data and resample at 5 seconds, allowing +- 4sec:
 trks.all <- trks %>% mutate(
+  highres = map( breeding, function(x) x %>%  
+          track_resample( rate = seconds(5), 
+                           tolerance = seconds(4) ) ),
   steps = map( breeding, function(x) 
     x %>%  track_resample( rate = seconds(5), 
                            tolerance = seconds(4)) %>% 
@@ -389,8 +392,8 @@ trks.all
 
 #Now unnest the dataframes of interest
 #Pull out the 5sec breeding season data
-trks.breed <- trks.all %>% dplyr::select( id, breeding ) %>% 
-  unnest( cols = breeding ) 
+trks.breed <- trks.all %>% dplyr::select( id, highres ) %>% 
+  unnest( cols = highres ) 
 tail( trks.breed )
 
 #At that same 5sec intervals pull out the step data (where step lengths
