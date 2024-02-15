@@ -34,7 +34,6 @@ rm( list = ls() )
 
 #import polygon of the NCA as sf spatial file:
 NCA <- sf::st_read( "Data/BOPNCA_Boundary.shp") 
-#note this is the whole lower 48, there is a cropped version we can download
 
 #load RAP cover
 #note I don't have RAP data downloaded
@@ -108,7 +107,7 @@ rasterVis::levelplot( cover_NCA , margin = FALSE,
 terra::plot( cover_NCA )
 #Note the range of values for each vegetation. 
 #What are they?
-# Answer: Annual and perrennial go to 100%, sagebrush only goes to 50%
+# Answer: 
 #
 ##############
 ###############################################################3
@@ -118,12 +117,10 @@ terra::plot( cover_NCA )
 #but intergreated step selection will be the same data as step selection
 ###### for RSFs #########
 
-#THIS is the part where I should start with the already cropped data
-
 #For RSF we want to draw random points inside the home range of 
 # each individual
 #check homerange data
-akde_all # THIS DATA EXISTS IN CLASS GITHUB 
+akde_all 
 
 #define how many random points we want to draw per individual:
 # as factor that total points will get multiplied by
@@ -142,8 +139,6 @@ rsf_pnts <-  df_inds %>%
   unnest( cols = rsf_pnts ) 
 #check
 head( rsf_pnts )
-
-#case_ is TRUE OR FALSE True means the point was actually observed to be used, false it wasn't (but is availible)
 
 #unnest tracks also
 trks.thin <- df_inds %>% 
@@ -202,7 +197,6 @@ df_all <- left_join( df_all, iddf, by = "id" )
 #check
 tail( df_all)
 
-#this is a % cover and mean cover for each vegetation type at each point
 ################
 ##################################################################
 ###### Now for SSF and iSSF ###
