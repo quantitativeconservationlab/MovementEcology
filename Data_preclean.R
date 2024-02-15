@@ -213,8 +213,6 @@ tail( df_all)
 # Here we  use the 30min resolution for computational efficiency.
 
 head(trks.steps)
-#in the output each row is a combo of 2 points that you are calculating the turning angle and distance between the points
-#turning angle has some NA values if there aren't 3 points to use to calculate it
 
 # start by nesting data using purr to replicate what we did above:
 steps_all <- trks.steps %>% nest( data = -"id" )
