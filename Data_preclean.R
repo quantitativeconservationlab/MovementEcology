@@ -202,6 +202,7 @@ df_all <- left_join( df_all, iddf, by = "id" )
 #check
 tail( df_all)
 
+#this is a % cover and mean cover for each vegetation type at each point
 ################
 ##################################################################
 ###### Now for SSF and iSSF ###
@@ -212,8 +213,10 @@ tail( df_all)
 # Here we  use the 30min resolution for computational efficiency.
 
 head(trks.steps)
+#in the output each row is a combo of 2 points that you are calculating the turning angle and distance between the points
+#turning angle has some NA values if there aren't 3 points to use to calculate it
 
-# start by nesting data using purr:
+# start by nesting data using purr to replicate what we did above:
 steps_all <- trks.steps %>% nest( data = -"id" )
 #view
 steps_all
@@ -222,6 +225,8 @@ steps_all
 steps_all <- steps_all %>% 
   dplyr::mutate( rnd = lapply( data, function(x){
     amt::random_steps( x ) } ) )
+#using the random steps function now
+
 # The default number of random steps drawn per individual is 10.
 # By default the random_steps() function fits a tentative #
 # gamma distribution to the observed step lengths and a tentative #
