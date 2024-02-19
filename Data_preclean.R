@@ -51,6 +51,7 @@ trks.steps <- read_rds( "Data/trks.steps30" )
 #contains tracks data used to estimate the range
 akde_all <- read_rds( "Data/akde_all" )
 akde_all
+
 ##############
 #######################################################################
 ######## preparing raster and polygon data ###############################################
@@ -153,10 +154,10 @@ r_all_trans <- sf::st_transform( r_all_sf, st_crs(cover_NCA) )
 
 #extract predictor at 30m resolution:
 cover_tracks_30m <- raster::extract( x = cover_NCA, r_all_trans,
-                                 method = "simple" )
+                             method = "simple" )
 
 #check
-cover_tracks_30m
+head( cover_tracks_30m)
 #add resolution to the column labels
 colnames(cover_tracks_30m) <- paste( colnames(cover_tracks_30m),
                                      "30m", sep = "_" )
@@ -272,7 +273,7 @@ df_steps <- cbind( stepsdf, cover_steps_30m, cover_steps_100m )
 #check
 head( df_steps )
 
-#Now we readd individual attributes that we want to keep
+#Now we re-add individual attributes that we want to keep
 #Note that this assumes that the same individuals are #
 #found in both your track and step objects:
 #join to your dataframe
