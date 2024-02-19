@@ -36,6 +36,8 @@ rm( list = ls() )
 NCA <- sf::st_read( "Data/BOPNCA_Boundary.shp") 
 
 #load RAP cover
+#note I don't have RAP data downloaded
+#also it doesn't come labeled so below we stack it with the labels
 cover <- raster::stack( "Data/vegetation-cover-v3-2021.tif" )
 
 #name stack in the appropriate order
@@ -106,18 +108,20 @@ rasterVis::levelplot( cover_NCA , margin = FALSE,
 terra::plot( cover_NCA )
 #Note the range of values for each vegetation. 
 #What are they?
-# Answer:
+# Answer: 
 #
 ##############
 ###############################################################3
 ######### preparing tracks and step objects  #########################
 #####################################################
-
+#We will need to do habitat selection data seperately from step selection, 
+#but intergreated step selection will be the same data as step selection
 ###### for RSFs #########
+
 #For RSF we want to draw random points inside the home range of 
 # each individual
 #check homerange data
-akde_all
+akde_all 
 
 #define how many random points we want to draw per individual:
 # as factor that total points will get multiplied by
@@ -205,7 +209,7 @@ tail( df_all)
 
 head(trks.steps)
 
-# start by nesting data using purr:
+# start by nesting data using purr to replicate what we did above:
 steps_all <- trks.steps %>% nest( data = -"id" )
 #view
 steps_all
@@ -214,6 +218,8 @@ steps_all
 steps_all <- steps_all %>% 
   dplyr::mutate( rnd = lapply( data, function(x){
     amt::random_steps( x ) } ) )
+#using the random steps function now
+
 # The default number of random steps drawn per individual is 10.
 # By default the random_steps() function fits a tentative #
 # gamma distribution to the observed step lengths and a tentative #
