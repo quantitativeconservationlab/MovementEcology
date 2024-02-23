@@ -18,12 +18,11 @@
 ################## prep workspace ###############################
 # we will be using new packages:
 install.packages( "glmmTMB" )
-
 # load packages relevant to this script:
 library( tidyverse ) #easy data manipulation
 library( amt )
 library( glmmTMB ) # for analysis
-
+library( corrplot )
 #####################################################################
 ## end of package load ###############
 
@@ -77,7 +76,6 @@ colSums( is.na( df_scl[,prednames] ) )
 df_scl$weight <- 1000 ^( 1 - as.integer(df_scl$case_ ) )
 #check
 head( df_scl )
-
 
 ##### analyse data  ##########
 #We can use fit_rsf, which is just a wrapper around 
@@ -153,11 +151,7 @@ df_scl[, prednames] <- apply( df_scl[,prednames], 2, scale )
 #view
 head( df_scl)
 #now check for missing values
-for( i in 1:length(prednames)){
-  a <- sum( is.na( df_scl[, prednames[i]] ) )
-  print( prednames[i])
-  print(a)
-}
+colSums( is.na( df_scl[,prednames] ) )
 #no missing values in this instance. 
 # we also assign weights to available points to be much greater than used points
 df_scl$weight <- 1000 ^( 1 - as.integer(df_scl$case_ ) )
@@ -166,15 +160,8 @@ head( df_scl )
 
 #remember available points were extracted within each individual's 
 #range
-
 #extract individual id numbers:
 idnos <- sort( unique( df_scl$territory )) 
-# Start with amt package  using the NCA as available habitat
-mp1 <- df_scl %>%  amt::fit_rsf( case_ ~ sage_30m ) %>% 
-            summary()
-
-#amt function doesn't take weights so we move to a more flexible #
-# package for more accurate analyses
 # We focus on comparing models between our two scales:
 mp_30m <- glmmTMB( case_ ~  0 + annual_30m + perennial_30m +
                      shrub_30m,
@@ -222,6 +209,8 @@ ggplot( df_all ) +
                      fill = case_, group = case_ ),
                 alpha = 0.5  ) +
   facet_wrap( ~ territory )
+#compare number of points 
+table( df_all$territory)
 
 ggplot( df_all ) +
   theme_bw( base_size = 15 ) +
@@ -238,7 +227,7 @@ ggplot( df_all ) +
   facet_wrap( ~ territory )
 
 
-#What do these plots tell us about indiviudual differences?
+#What do these plots tell us about individual differences?
 # Is it reasonable to assume that all individuals are selecting 
 # habitat similarly?
 # Answer:

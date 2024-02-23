@@ -1,31 +1,36 @@
 ##################################################################
 # Script developed by Jen Cruz to estimate SSFs and iSSFs          #
-# approach derived from Fieberg et al. 2021 DOI: 10.1111/1365-2656.13441 #
+# approach derived from Fieberg et al. 2021 and Signer et al. 2019 #
 # using code from Appendices B and C                             #
 # also Muff et al. 2019 DOI: 10.1111/1365-2656.13087             #
 # code here:                                                     #  
 # https://conservancy.umn.edu/handle/11299/204737                #
 #                                                                #
-# We use landcover data from the National Geospatial Data Asset  #
-# https://www.mrlc.gov                                           #
-# Habitat predictors include 2018 estimates of sagebrush cover   #
+# Vegetation cover  was downloaded from Rangeland Analysis Platform #
+# https://rangelands.app/products/ for 2021 and includes        #
+# % cover for shrub, perennial herbaceous, annual herbaceous    #
+# tree, litter and bare ground                                   #
+# coordinate system is WGS84 EPSG:4326, spatial resolution is 30m #
+# and was extracted at two scales                                #
+# Prairie Falcon data was thinned to 30minutes for 9 individuals #
+# tracked in 2021.                                               #
 ###################################################################
 
 ################## prep workspace ###############################
-
-# Clean your workspace to reset your R environment. #
-rm( list = ls() )
+#install relevant packages
+# #install.packages( "peakRAM" )
+# install.packages("INLA",repos=c(getOption("repos"),
+#   INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
 
 # load packages relevant to this script:
 library( tidyverse ) #easy data manipulation
 # set option to see all columns and more than 10 rows
 options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt )
-library( sf )
-library( terra ) # for raster manipulation
-library( raster )
-library( rasterVis ) #for raster visualization (of raster:: objects)
 library( glmmTMB ) # for analysis
+#library( INLA )
+#to enable maximum RAM
+#library( peakRAM )
 
 #####################################################################
 ## end of package load ###############
@@ -33,135 +38,94 @@ library( glmmTMB ) # for analysis
 ###################################################################
 #### Load or create data -----------------------------------------
 
-#load 30m steps estimated for all individuals
-trks.steps <- read_rds( "Data/trks.steps30" )
-# load points also so that we can combine data
-trks <- read_rds( "Data/trks.thin" )
+# Clean your workspace to reset your R environment. #
+rm( list = ls() )
+#load 30m steps estimated for all individuals and habitat 
+# variables extracted for each step
+df_steps <- read_rds( "Data/df_steps" )
 #view
-head( trks.steps )
-
-head( trks )
-# #load range for all individuals estimated using ctmm 
-# load( "../ctmm_akde_w.rda" ) 
-# #check that it loaded the object
-# class( akde.w )
+head( df_steps )
 
 #import polygon of the NCA as sf spatial file:
-NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
-
-# #import sagebrush raster with raster:
-sagebrush <- raster::raster( "Z:/Common/QCLData/Habitat/NLCD_new/TimeSeriesCover/Sagebrush/Sagebrush_2009_2020/rcmap_sagebrush_2020.img")
-#visualize with either rasterVis or terra::plot:
-rasterVis::levelplot( sagebrush )
-#view
-sagebrush
+#NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
 #######################################################################
 ######## preparing data ###############################################
-# we prepare the predictor data similarly to how we did it for RSFs:
-#get coordinates from shapefile
-crstracks <- sf::st_crs( NCA_Shape )
-# checking outline of NCA
-sf::st_bbox( NCA_Shape )
-# We define available habitat as area of NCA with a small buffer #
-# around it and draw points from it #
-#create a buffer around the NCA using outline of NCA and sf package:
-# we are more generous than with our RSF analyses
-NCA_buf <- NCA_Shape %>% sf::st_buffer( dist =1e4 )
-#create a version that matches coordinates of the predictor raster:
-NCA_trans <- sf::st_transform( NCA_buf, st_crs( sagebrush ) ) 
-#crop raster to buffered NCA:
-sage_cropped <- raster::crop( sagebrush, NCA_trans )
-# Now that we have cropped it to the appropriate area it should be faster #
-# to process 
-#view
-sage_cropped
-#values greater than 100 are empty so replace with missing
-sage_cropped[ sage_cropped > 100 ] <- NA
-#Plot sagebrush
-rasterVis::levelplot( sage_cropped )
-terra::plot(sage_cropped)
-#extract individual ids
-ids <- unique(trks$territory)
-# to create random steps, we start by nesting our data using purr:
-steps_all <- trks.steps %>% nest( data = -"id" )
-#view
-steps_all
-#we then estimate random steps
-steps_all <- steps_all %>% 
-          dplyr::mutate( rnd = lapply( data, function(x){
-            amt::random_steps( x ) } ) )
-# Note that by default the random_steps() function fits a tentative #
-# gamma distribution to the observed step lengths and a tentative #
-# von Mises distribution to the observed turn angles. #
-# It then generates random available points by sampling step-lengths #
-# and turn angles from these fitted distributions and combining these #
-# random steps with the starting locations associated with each observed #
-# movement step. #
+#view data
+head( df_steps)
+#create vector of predictors taking advantage of naming commonality 
+# to automatically extract them:
+prednames <- grep('0m', colnames(df_steps), value = TRUE)
 
-#now unnest the new dataframes to make sure they worked
-stepsdf <- steps_all %>% dplyr::select( id, rnd ) %>% 
-  unnest( cols = rnd ) 
-#view
-head( stepsdf );dim( stepsdf )
+#check for missing values
+colSums( is.na( df_steps[,prednames] ) )
+#check for correlation but also whether the values sum to one or close 
+# to. See: https://esajournals.onlinelibrary.wiley.com/doi/full/10.1002/ecy.4256
+# for reasons why that is an issue.
+# we have missing values so we start by removing them 
+preddf <- df_steps[!is.na(df_steps[prednames[1]]), prednames]
+preddf <- preddf[!is.na(preddf[prednames[2]]), ]
+preddf <- preddf[!is.na(preddf[prednames[3]]), ]
+preddf <- preddf[!is.na(preddf[prednames[4]]), ]
+preddf <- preddf[!is.na(preddf[prednames[5]]), ]
+preddf <- preddf[!is.na(preddf[prednames[6]]), ]
+dim(preddf); dim(df_steps);head(preddf)
 
-# Before extracting data we need to turn it to sf object and #
-# change projection to match the raster.
+corrplot::corrplot( round(cor( preddf ) , 1 ), method = "number" )
+#sum covariates at appropriate scale and then plot results:
+#for 30m
+hist(apply( preddf[ ,prednames[1:3] ], 1,sum ))
+#for 100m
+hist(apply( preddf[ ,prednames[4:6] ], 1,sum ))
 
-# We start by turning it to sf object, assigning the correct projection
-steps_sf <- sf::st_as_sf( stepsdf, coords = c("x2_", "y2_"), 
-                          crs = crstracks )
-# Note that we use the end of the step coordinates, since we want to 
-# focus on habitat selection, not movement.
-steps_sf
+#now check whether there is evidence of individual differences 
+#in habitat selection 
+ggplot( df_steps ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = perennial_30m, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  facet_wrap( ~ territory )
+ggplot( df_steps ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = annual_30m, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  facet_wrap( ~ territory )
+ggplot( df_steps ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = shrub_30m, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  facet_wrap( ~ territory )
 
-# We then transform the crs:
-steps_trans <- sf::st_transform( steps_sf, st_crs(sage_cropped) )
-
-#extracting with raster we can used the sf object directly, you also 
-# have the choice to use a buffer around each point if you want to increase 
-# your resolution:
-sage_30m <- raster::extract( x = sage_cropped, steps_trans,
-                             method = "simple" )
-
-#check
-sage_30m
-# What proportion of our data are missing values
-sum( is.na( sage_30m ))/ length( sage_30m )
-
-#extract at 300 m resolution
-sage_300m <- raster::extract( x = sage_cropped, 
-                              steps_trans,
-                             method = "simple", buffer = 150, 
-                             fun  = mean, na.rm = TRUE )
-
-#check
-sage_300m
-# What proportion of our data are missing values
-sum( is.na( sage_300m ))/ length( sage_300m )
-
-# We append our predictor estimates to the original steps tibble:
-df_all <- cbind( stepsdf, sage_30m, sage_300m )
+#For homework check differences at the other spatial scale
+# What did you find?
+# Answer: 
+#
 # Scale predictors 
-df_all$sage_30m <- scale( df_all$sage_30m )
-df_all$sage_300m <- scale( df_all$sage_300m )
-#replace missing values with mean, which is 0 after they have been scaled
-df_all$sage_30m[ is.na(df_all$sage_30m) ] <- 0
-df_all$sage_300m[ is.na(df_all$sage_300m) ] <- 0
-# we also assign weights to available points to be much greater than #
-# used points
-df_all$weight <- 1000 ^( 1 - as.integer(df_all$case_ ) )
+#create new dataframe to hold scaled predictors, while keeping 
+# unscaled ones for plotting later
+df_scl <- df_steps
+
+#scale only those columns:
+df_scl[, prednames] <- apply( df_scl[,prednames], 2, scale )
+#view
+head( df_scl)
+#now check for missing values
+colSums( is.na( df_scl[,prednames] ) )
+#replace missing values with 0
+df_scl$annual_30m[ is.na(df_scl$annual_30m) ] <- 0
+df_scl$annual_100m[ is.na(df_scl$annual_100m) ] <- 0
+df_scl$perennial_30m[ is.na(df_scl$perennial_30m) ] <- 0
+df_scl$perennial_100m[ is.na(df_scl$perennial_100m) ] <- 0
+df_scl$shrub_30m[ is.na(df_scl$shrub_30m) ] <- 0
+df_scl$shrub_100m[ is.na(df_scl$shrub_100m) ] <- 0
+
+# we also assign weights to available points to be much greater than used points
+df_scl$weight <- 1000 ^( 1 - as.integer(df_scl$case_ ) )
 #check
-head( df_all )
+head( df_scl )
 
-# remove individuals with low sample size 
-remv <- c( 1,3,7)
-df_red <- df_all %>% 
-  filter( !(id %in% remv ) )
-tail( df_red)
-unique( df_red$id)
-
-#check correlation between two scale
-cor( df_red$sage_300m, df_red$sage_30m )
 #### end data prep #############
 ###########################################################################
 ##### analyse data  ##########
@@ -172,141 +136,150 @@ cor( df_red$sage_300m, df_red$sage_30m )
 # large variance for the random intercepts, as recommended by Muff #
 # et al. 2019 and weights of 1000 for available points #
 
+#df_one <- df_scl %>% filter( id == 2 )
 # we start by defining the model without running it, which let's us
 # fit the large variance to the random ID intercepts
-m1.struc <- glmmTMB( case_ ~  sage_300m + 
-                   #define random effects
-                   ( 1| step_id_ ) + 
-                   ( 1| id ),# + ( 0 + sage_300m | id ), 
-                   family = poisson, data = df_red, 
-                   weights = weight, doFit=FALSE ) 
+#p1 <- peakRAM( 
+m1 <- glmmTMB( case_ ~ 0 + annual_30m + perennial_30m + 
+                                shrub_30m +
+             #use step_id as random effect to simulate conditional likelihood
+             ( 1| step_id_ ), 
+             family = poisson, data = df_scl,
+             weights = weight,
+              start = list(theta = log( 1e3 ) ), 
+             map = list( theta = factor( c(NA) ) ) )  
 
-# fix variance
-m1.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
-# tell it not to change variance
-m1.struc$mapArg <- list( theta = factor( c(NA, 1:2) ) )
-#m1.struc$mapArg <- list( theta = factor( c(NA,1) ) )
-#then fit the model
-m1 <- glmmTMB::fitTMB( m1.struc )
 summary( m1 )
 
-#rerun model with 30m scale 
-m2.struc <- glmmTMB( case_ ~  sage_30m + 
-                       #define random effects
-                       ( 1| step_id_ ) + 
-                       ( 1| id ),# + ( 0 + sage_30m | id ), 
-                     family = poisson, data = df_red, 
-                     weights = weight, doFit=FALSE ) 
+# rerun model with random effects that account for individual
+# differences in habitat selection
+m2 <- glmmTMB( case_ ~  -1 + annual_30m + perennial_30m + shrub_30m +
+               #define random effects
+               ( 1 | step_id_ ) + 
+               ( 0 + annual_30m  | id ) +
+               ( 0 + perennial_30m  | id ) +
+               ( 0 + shrub_30m | id ) ,
+               #set family to Poisson
+               family = poisson, data = df_scl,
+               #define weights
+               weights = weight, 
+               #tell it not to change variance for step level
+               map = list( theta = factor( c(NA, 1:3 ) ) ),
+               #fix variance for step level random intercept
+               start = list( theta = c( log( 1e3 ),0,0,0) )
+                )
 
-# fix variance
-m2.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
-# tell it not to change variance
-#m1.struc$mapArg <- list( theta = factor( c(NA, 1:2) ) )
-m2.struc$mapArg <- list( theta = factor( c(NA,1) ) )
-#then fit the model
-m2 <- glmmTMB::fitTMB( m1.struc )
 summary( m2 )
 
+#now test the larger scale
+m3 <- glmmTMB( case_ ~  -1 + annual_100m + perennial_100m + shrub_100m +
+                 #define random effects
+                 ( 1 | step_id_ ) + 
+                 ( 0 + annual_100m  | id ) +
+                 ( 0 + perennial_100m  | id ) +
+                 ( 0 + shrub_100m | id ) ,
+               #set family to Poisson
+               family = poisson, data = df_scl,
+               #define weights
+               weights = weight, 
+               #tell it not to change variance for step level
+               map = list( theta = factor( c(NA, 1:3 ) ) ),
+               #fix variance for step level random intercept
+               start = list( theta = c( log( 1e3 ),0,0,0) )
+)
+
+summary( m3 )
+
 #which scale was better??? 
+# Answer:
+#
+##############################################################################
+################### visualizing top model results ############
+###################
+# We start by visualizing population-level effects:
+#pull out confidence intervals for your top model
+cis <- confint( m2 )
+#change to df
+cis <- as.data.frame( cis )
+#view
+cis
+#extract row names as column
+cis$preds <- rownames( cis )
+#edit column names
+colnames(cis )[1:3] <- c("L", "H", "Mean" )
+#keep only fixed effects 
+cis <- cis[1:3, ]
+cis
+#plot fixed effects (population-level effects)
+ggplot( data = cis, aes( x = preds, y  = exp(Mean) ) ) + 
+  theme_classic( base_size = 16) +
+  geom_point( size = 3 ) +
+  geom_errorbar( aes( ymin = exp(L), ymax = exp(H) ), linewidth = 1 ) +
+  labs(x = element_blank(), y = "Relative selection strengh") +
+  geom_hline( yintercept = 1, linewidth = 1 )
+
+# Now we extract random effects so we can assess differences between 
+# individuals 
+#pull out random effects at the id level #
+ran.efs <- ranef( m2 )$cond$id
+#note that we don't want the ones at the step level
+
+#pull out fixed effects
+fix.efs <- fixef( m2 )$cond
+#view
+fix.efs
+
+#we need to add the fixed effect to the random for each vegetation 
+# and exponentiate our results
+rss <- ran.efs
+rss[,1 ] <- exp( rss[,1] + fix.efs[1] )
+rss[,2 ] <- exp( rss[,2] + fix.efs[2] )
+rss[,3 ] <- exp( rss[,3] + fix.efs[3] )
+#create id column
+rss$id <- as.numeric(  rownames( rss ) )
+#view
+rss
+# now extract additional details from our steps dataframe to combine 
+# with our results
+iddf <- df_steps %>% 
+  group_by( id, territory, sex ) %>% 
+  summarise( annual_30m_mean = mean( annual_30m, na.rm = TRUE),
+             perennial_30m_mean = mean( perennial_30m, na.rm = TRUE),
+             shrub_30m_mean = mean( shrub_30m, na.rm = TRUE)
+             )
+iddf
+#combine with our resource selection strength estimates
+iddf <- left_join( iddf, rss, by = "id" )
+
+#plot results
+ggplot( iddf ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean annual cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point( aes( x = annual_30m_mean , y = annual_30m, color = sex ) ) +
+  geom_hline( yintercept = 1, linewidth = 1 )
+
+ggplot( iddf ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean perennial cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point( aes( x = perennial_30m_mean , y = perennial_30m, color = sex ) ) +
+  geom_hline( yintercept = 1, linewidth = 1 )
+
+ggplot( iddf ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean shrub cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point( aes( x = shrub_30m_mean , y = shrub_30m, color = sex ) ) +
+  geom_hline( yintercept = 1, linewidth = 1 )
+
 ###########################################################
 ##### end ######
-
-######################################################################
-######## how would we partition data into behavioral states prior to #
-# analyses ###############################################################
-# for the used data we start by exploring it a bit more to refresh #
-# our memory:
-# we combine track dataframe to use information we have calculated 
-# previously 
-trks_all <- trks %>% 
-  #select columns of interest
-  dplyr::select( id, territory, sex, mth, jday,
-                 alt, speed, x2_ = x_, y2_ = y_, t2_ = t_  )
-
-trks_all <- trks_all %>% 
-  # append to steps
-  right_join( trks.steps, by = c("id", "x2_", "y2_", "t2_" ) )
-
-#check
-head( trks_all )
-# we add week for easier visualization and subsetting 
-trks_all <- trks_all %>%  
-  #remove those bursts that have too few points
-  amt::filter_min_n_burst( min_n = 5 ) %>% 
-  #add week and hour columns 
-    mutate( wk = lubridate::week( t2_ ), 
-          hr =  lubridate::hour( t2_ ) )  
-
-# we remind ourselves about over which weeks our data overlap
-ggplot( trks_all, aes( x = jday, fill = as.factor(wk) ) ) +
-  theme_classic( base_size = 15 ) +
-  geom_histogram( alpha = 0.8 ) +
-  facet_wrap( ~ id )
-# from this we can see that we have an uneven sample size that we 
-# need to deal with 
-
-# we visualise step lengths and turning angles for each individual 
-trks_all %>%   
-  ggplot(.) +
-  geom_density( aes( x = sl_, fill = as.factor(wk) ), alpha = 0.6 ) +
-#  geom_density( aes( x = ta_, fill = as.factor(wk) ), alpha = 0.6 ) +
-#  geom_density( aes( x = hr, fill = as.factor(wk)), alpha = 0.6 ) +
-#  geom_density( aes( x = speed, fill = as.factor(wk) ), alpha = 0.6 ) +
-  #geom_histogram( aes( x = sl_, fill = as.factor(wk) ) ) +
-  #xlab("Step length" ) + 
-  #ylim( 0, 0.01 ) + 
-  #xlim(0, 300 ) +
-  theme_bw( base_size = 19 )  +
-  theme( legend.position = "none" ) +
-  facet_wrap( ~id, scales = 'free' )
-
-# We plot alternatives selections for step lengths and turning angles
-# to choose parameters that may help to coarsely remove nesting 
-# locations and travelling locations
-
-ids <- unique( trks_all$id )
-ters <- unique( trks_all$territory )
-for( i in ters ){  
-  #pull observation that you think belong to foraging
-  a <- trks_all %>% dplyr::filter( territory == i ) %>% 
-    #filter( ta_ < -0.2 | ta_ > 0.2 ) %>% 
-    dplyr::filter( sl_ < 5000 ) %>% 
-    dplyr::filter( speed > 1 | speed < 30 ) %>% 
-    #dplyr::filter( hr > 6 | hr < 20 ) %>% 
-    sf::st_as_sf(., coords = c("x2_", "y2_"), crs = crstracks )
-  #pull all observations for that individual
-  b <- trks_all %>% filter( territory == i ) %>% 
-    sf::st_as_sf(., coords = c("x2_", "y2_"), crs = crstracks )
-#compare
-  c  <- ggplot( b ) +
-    theme_bw( base_size = 15 ) +
-    labs( title = i ) +
-    theme( legend.position = "none" ) +
-    geom_sf() +
-    geom_sf( data = NCA_Shape, inherit.aes = FALSE, alpha = 0 ) +
-    geom_sf( data = a, aes(col = as.factor( burst_ ) ), 
-                           inherit.aes = FALSE )# +
-    #facet_wrap( ~wk )
-
-  print( i )
-  print( c )
-}
-
-# We can use these parameters to subset the data but we would have #
-# to recalculate steps #
-
 ##########################################################################
-### Save desired results                                  #
-# Save the steps dataframe with extracted raster values so that I 
-# don't have to recreate it when estimating issfs 
-write_rds( df_all, "Data/df_all" )
-
-write_rds( trks_all, "Data/trks_all" )
-
-#Also save the unscaled raster values as a csv
-write.csv( sage_30m, "Data/sage_30m_steps.csv", row.names = FALSE )
-write.csv( sage_300m, "Data/sage_300m_steps.csv", row.names = FALSE )
+### Save desired results   #
+#we save the scaled dataframe so that we can use it for the iSSFs
+write_rds( df_scl, "Data/df_scl"  )
 #save workspace if in progress
-save.image( 'SSF_results.RData' )
+save.image( 'SSF_results.RData'  )
 
 ############# end of script  ##################################
