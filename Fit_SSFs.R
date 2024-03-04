@@ -130,7 +130,7 @@ head( df_scl )
 ###########################################################################
 ##### analyse data  ##########
 
-#amt function doesn't take random effects or weights so we move to a more
+# amt function doesn't take random effects or weights so we move to a more
 # flexible package. We move straight into a model #
 # that includes random intercepts and slopes as well as a fixed #
 # large variance for the random intercepts, as recommended by Muff #

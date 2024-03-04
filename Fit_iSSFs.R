@@ -1,160 +1,154 @@
 ##################################################################
 # Script developed by Jen Cruz to estimate iSSFs          #
-# Approach largely followed Fieberg et al. 2021 DOI: 10.1111/1365-2656.13441 #
-# specifically Appendices B and C                             #
-# also Muff et al. 2019 DOI: 10.1111/1365-2656.13087             #
-# code here:                                                     #  
+# approach derived from Fieberg et al. 2021 and Signer et al. 2019 #
+# using code from Appendices B and C for the single individual    #
+# example and for all individuals using code from  Muff et al. 2019: #
 # https://conservancy.umn.edu/handle/11299/204737                #
 #                                                                #
-# We use landcover data from the National Geospatial Data Asset  #
-# https://www.mrlc.gov                                           #
-# Habitat predictors include 2020 estimates of sagebrush cover   #
+# Vegetation cover  was downloaded from Rangeland Analysis Platform #
+# https://rangelands.app/products/ for 2021 and includes        #
+# % cover for shrub, perennial herbaceous, annual herbaceous    #
+# tree, litter and bare ground                                   #
+# coordinate system is WGS84 EPSG:4326, spatial resolution is 30m #
+# and was extracted at two scales                                #
+# Prairie Falcon data was thinned to 30minutes for 9 individuals #
+# tracked in 2021.                                               #
 ###################################################################
 
 ################## prep workspace ###############################
+#install relevant packages
+install.packages( "circular" )
 
-# Clean your workspace to reset your R environment. #
-rm( list = ls() )
-
-#install.packages( "circular" )
 # load packages relevant to this script:
 library( tidyverse ) #easy data manipulation
 # set option to see all columns and more than 10 rows
 options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt )
-library( sf )
 library( glmmTMB )
 library( circular ) #for plotting von mises distribution
-library( raster )
 #####################################################################
 ## end of package load ###############
 
 ###################################################################
 #### Load or create data -----------------------------------------
+# Clean your workspace to reset your R environment. #
+rm( list = ls() )
+#load 30m steps estimated for all individuals and habitat 
+# variables extracted for each step
+df_steps <- read_rds( "Data/df_steps" )
 
-# #load steps at 5sec resolution
-trks <- read_rds( "Data/trks.steps" )
-# #check
-head(trks)
-# OR if wanting to work with 30min resolution, load the 
-# dataframe that we created in Fit_SSFs.R script:
-dfraw <- read_rds( "df_all" )
-#check
-class( dfraw )
-#import polygon of the NCA as sf spatial file:
-NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
-# #import sagebrush raster with raster:
-sagebrush <- raster::raster( "Z:/Common/QCLData/Habitat/NLCD_new/TimeSeriesCover/Sagebrush/Sagebrush_2009_2020/rcmap_sagebrush_2020.img")
-
+#load the scaled data so we don't have to do it again
+df_scl <- read_rds( "Data/df_scl" )
 
 #######################################################################
-######## preparing data ###############################################
-# # now tks
- head( trks ); dim(trks)
+######## visualizing data ###############################################
+
+#check
+head( df_scl )
 # We cannot have missing values for the predictors so we 
 # need to remove steps with missing ta_ 
-#step ids are not unique to individuals so we create a unique id:
-trks$id_step <- paste0( trks$id, trks$burst_ )
-head( df);dim(df)
-
-#we use either trks or df_all depending on our preference
-df <- trks
-#df <- dfraw
-
 #which steps have missing ta values:
-df$id_step[ which( is.na(df$ta_) ) ]
-#how many don't:
-length( df$id_step[ which( !is.na(df$ta_) ) ] )
-dim(df)
-df <- df[which( !is.na(df$ta_) ), ]
-head(df)
-#which steps are 0 length
-unique( df$id_step[ which( df$sl_ == 0) ] )
+df_steps$step_id_[ is.na( df_steps$ta_ )  ]
+# do we have any zero step lengths:
+df_steps$step_id_[ which( df_steps$sl_ == 0) ] 
 
 #recheck sample size:
-table( df$id)
-head(df)
+table( df_steps$territory )
 
-### reextract sagebrush if using 5 sec resolution #######
-## otherwise you already have it #
-#get coordinates from shapefile
-crstracks <- sf::st_crs( NCA_Shape )
-#create a buffer around the NCA using outline of NCA and sf package:
-# we are more generous than with our RSF analyses
-NCA_buf <- NCA_Shape %>% sf::st_buffer( dist =1e4 )
-#create a version that matches coordinates of the predictor raster:
-NCA_trans <- sf::st_transform( NCA_buf, st_crs( sagebrush ) ) 
-#crop raster to buffered NCA:
-sage_cropped <- raster::crop( sagebrush, NCA_trans )
-#values greater than 100 are empty so replace with missing
-sage_cropped[ sage_cropped > 100 ] <- NA
-#Plot sagebrush
-rasterVis::levelplot( sage_cropped )
-terra::plot(sage_cropped)
+#To check whether there is evidence of individual differences 
+#in habitat selection we could categorize the vegetation metrics for
+#plotting purposes. We create categories in a new plotting dataframe:
+df_plot <- df_steps %>% 
+  dplyr::mutate( peren_cat = ifelse( perennial_30m < 20, "low",
+  ifelse( perennial_30m >  40, "high", "medium" ) ),
+  annual_cat = ifelse( annual_30m < 20, "low",
+    ifelse( annual_30m > 40, "high", "medium" ) ),
+  shrub_cat = ifelse( shrub_30m < 10, "low",
+    ifelse( shrub_30m > 20, "high", "medium" ) ))
 
-# to create random steps, we start by nesting our data using purr:
-steps_all <- df %>% nest( data = -"id" )
-#view
-steps_all
-#we then estimate random steps
-steps_all <- steps_all %>% 
-  dplyr::mutate( rnd = lapply( data, function(x){
-    amt::random_steps( x ) } ) )
-#now unnest the new dataframes to make sure they worked
-stepsdf <- steps_all %>% dplyr::select( id, rnd ) %>% 
-  unnest( cols = rnd ) 
-# We start by turning it to sf object, assigning the correct projection
-steps_sf <- sf::st_as_sf( stepsdf, coords = c("x2_", "y2_"), 
-                          crs = crstracks )
-# We then transform the crs:
-steps_trans <- sf::st_transform( steps_sf, st_crs(sage_cropped) )
-#extracting with raster we can used the sf object directly, you also 
-# have the choice to use a buffer around each point if you want to increase 
-# your resolution:
-sage_30m <- raster::extract( x = sage_cropped, steps_trans,
-                             method = "simple" )
+# Start by plotting differences in step lengths between low,medium
+# and high percentages of perennial herbaceous vegetation.
+#before plotting we remove missing values 
+df_plot %>% filter( !is.na(peren_cat) ) %>% 
+ggplot( . ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = sl_, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  xlim( 0,20000 ) +
+  facet_wrap( ~ peren_cat, ncol = 1 )
 
-#check
-sage_30m
-# What proportion of our data are missing values
-sum( is.na( sage_30m ))/ length( sage_30m )
+#repeat for annual
+df_plot %>% filter( !is.na(annual_cat) ) %>% 
+  ggplot( . ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = sl_, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  xlim( 0,20000 ) +
+  facet_wrap( ~ annual_cat, ncol = 1 )
 
-# We append our predictor estimates to the original steps tibble:
-df <- cbind( stepsdf, sage_30m )
-df$sage_30m <- scale( df$sage_30m )
-df$sage_30m[ is.na(df$sage_30m) ] <- 0
+#repeat for shrub
+df_plot %>% filter( !is.na(shrub_cat) ) %>% 
+  ggplot( . ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = sl_, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  xlim( 0,20000 ) +
+  facet_wrap( ~ shrub_cat, ncol = 1 )
 
-#check
-head( df)
-### end adding sagebrush and weight ####
-# we check sample sizes for each individual
-table( df$id)
-# #select ids those with poor sample size
-# remids <- c( 1,3,7)
-# # use those to remove their data from dataframe:
-# df <- df %>%  
-#   dplyr::filter( !(id %in% remids) )
-# #check 
-# dim(df)
+# How do you interpret these results?
+# Answer: 
+# 
 
-### end data prep #######
+# Now we look at turning angles 
+df_plot %>% filter( !is.na(peren_cat) ) %>% 
+  ggplot( . ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = ta_, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  facet_wrap( ~ peren_cat, ncol = 1 )
+#repeat for annual
+df_plot %>% filter( !is.na(annual_cat) ) %>% 
+  ggplot( . ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = ta_, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  facet_wrap( ~ annual_cat, ncol = 1 )
+
+#repeat for shrub
+df_plot %>% filter( !is.na(shrub_cat) ) %>% 
+  ggplot( . ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = ta_, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  +
+  facet_wrap( ~ shrub_cat, ncol = 1 )
+
+# How do you interpret these results?
+# Answer: 
+# 
+# For homework try visualizing plots with 100m scale and 
+# use results to decide which scale to analyse
+# 
+### end visualizing prep #######
 ######## analysis for single individual using amt #################
-# Estimate empirical distributions for individual of interest:
-emp_d_sl <- df %>% dplyr::filter( id == 4 ) %>%
-  dplyr::select( sl_ ) %>% 
-  fit_distr( ., dist_name = "gamma" )
-#view
-emp_d_sl
-#now for turning angle using a von mises, circular distribution:
-emp_d_ta <- df %>% dplyr::filter( id == 4 ) %>%
-  dplyr::select( ta_ ) %>% 
-  fit_distr( ., dist_name = "vonmises" )
-#view
-emp_d_ta
+# Remember that amt does not allow random effects...but we still 
+# want to explore features that it does offer. Another alternative #
+# to using random effects would be to run analysis separate for each #
+# individual so we demonstrate by running analysis for one individual #
+# subset dataframe to one
+df_one <- df_scl %>% dplyr::filter( id == 3 )
 
 #Fit iSSF model to same individual:
-m_sg <- df %>% dplyr::filter( id == 4 ) %>% 
-  fit_issf( case_ ~ sage_30m + sl_ + log(sl_) + cos(ta_) +
+m1_sg <- df_one %>% 
+  #remember that we remove the intercept
+  fit_issf( case_ ~ -1 + annual_30m + perennial_30m + shrub_30m +
+              sl_ + log(sl_) + cos(ta_) +
+              #here we specify that it is a conditional model:
               strata( step_id_ ), model = TRUE )
 # Note the cosine of the turn angle and the log of the 
 #step-length allow us to adjust/refine the parameters of our #
@@ -162,9 +156,97 @@ m_sg <- df %>% dplyr::filter( id == 4 ) %>%
 # fitting our integrated step-selection model. #
 
 #view results
-summary( m_sg )
+summary( m1_sg )
 
-#### interpret results ###
+# There is no evidence of the need to modify the gamma distribution
+# of the step length, or the von misses for the turning angle.
+# How do we know this?
+# Answer:
+# which habitat predictors seem to matter to this falcon?
+# Answer:
+# 
+
+# From our visualizations earlier we did expect individuals 
+# to use different movements in different habitats. Here we test 
+# out this theory by adding interaction terms:
+m2_sg <- df_one %>% 
+  #remember that we remove the intercept
+  fit_issf( case_ ~ -1 + annual_30m + perennial_30m + shrub_30m +
+              sl_ + log(sl_) + cos(ta_) +
+              #add interactions between movements and habitats
+              log(sl_):annual_30m + log(sl_):perennial_30m + 
+              log(sl_):shrub_30m +
+              cos(ta_):annual_30m + cos(ta_):perennial_30m +
+              cos(ta_):shrub_30m + 
+              #here we specify that it is a conditional model:
+              strata( step_id_ ), model = TRUE )
+
+#view results
+summary( m2_sg )
+# What do these results tell you? Did the model converge?
+# Answer:
+# 
+# we try reduced models
+m3_sg <- df_one %>% 
+  #remember that we remove the intercept
+  fit_issf( case_ ~ -1 + annual_30m + perennial_30m + shrub_30m +
+              sl_ + log(sl_) + cos(ta_) +
+              #add interactions between movements and habitats
+              log(sl_):annual_30m + #log(sl_):perennial_30m + 
+              #log(sl_):shrub_30m +
+              cos(ta_):annual_30m + #cos(ta_):perennial_30m +
+              #cos(ta_):shrub_30m + 
+              #here we specify that it is a conditional model:
+              strata( step_id_ ), model = TRUE )
+
+#view results
+summary( m3_sg )
+
+m4_sg <- df_one %>% 
+  #remember that we remove the intercept
+  fit_issf( case_ ~ -1 + annual_30m + perennial_30m + shrub_30m +
+              sl_ + log(sl_) + cos(ta_) +
+              #add interactions between movements and habitats
+              log(sl_):perennial_30m +
+              cos(ta_):perennial_30m +
+              #here we specify that it is a conditional model:
+              strata( step_id_ ), model = TRUE )
+
+#view results
+summary( m4_sg )
+
+m5_sg <- df_one %>% 
+  #remember that we remove the intercept
+  fit_issf( case_ ~ -1 + annual_30m + perennial_30m + shrub_30m +
+              sl_ + log(sl_) + cos(ta_) +
+              #add interactions between movements and habitats
+              log(sl_):shrub_30m + cos(ta_):shrub_30m + 
+              #here we specify that it is a conditional model:
+              strata( step_id_ ), model = TRUE )
+
+#view results
+summary( m5_sg )
+
+#we can compare model results
+AIC( m1_sg); AIC( m2_sg); AIC( m3_sg); AIC( m4_sg); AIC( m5_sg)
+# Interpret these AIC results. Which model has the most support?
+# Can we be confident in all models?
+# Answers:
+#
+#
+
+# We end by adding a quadratic term to the top model
+m6_sg <- df_one %>% 
+  fit_issf( case_ ~ -1 + annual_30m + perennial_30m + shrub_30m +
+              I( annual_30m^2 ) +
+              sl_ + log(sl_) + cos(ta_) +
+              strata( step_id_ ), model = TRUE )
+summary( m6_sg)
+AIC( m1_sg); AIC( m2_sg)
+# Was it supported?
+# Answer:
+# 
+#### Visualize results for top model ###
 # One option that can help interpret results is by calculating #
 # relative selection strength for two locations that are equal #
 # except for 1 of the predictors. We demonstrate that approach here: #
@@ -173,52 +255,81 @@ summary( m_sg )
 # of the two hypothetical locations that we want to compare: 
 # We focus on differences in sagebrush #
 s1 <- data.frame( 
-  sage_30m = 0, 
-  sl_ = 20,
+  annual_30m = 0, 
+  perennial_30m = 0,
+  shrub_30m = 0,
+  sl_ = 1000,
   ta_ = 0 )
 # now a second dataframe with higher sagebrush
 s2 <- data.frame( 
-  sage_30m = 1, 
-  sl_ = 20,
+  annual_30m = 1, 
+  perennial_30m = 0,
+  shrub_30m = 0,
+  sl_ = 1000,
   ta_ = 0 )
 
-# now we use log_rss() to calculate log-RSS 
-lr1 <- log_rss( m_sg, x1 = s1, x2 = s2 )
+# now we use log_rss() and our top model to calculate log-RSS 
+lr1 <- log_rss( m1_sg, x1 = s1, x2 = s2 )
 #  view
 lr1$df
 
 # we can shift to using a range for one of the distributions instead
 # so that we  can make a plot of change:
+#first we need to know what the individual experience
+min( df_one$annual_30m ); max(df_one$annual_30m )
+# use those values for prediction
 s3 <- data.frame( 
-  sage_30m = seq(from = -1, to = 3, length.out = 100), 
-  sl_ = 20,
+  annual_30m = seq(from = round( min( df_one$annual_30m ),0), 
+            to = round(max( df_one$annual_30m ),0), length.out = 100), 
+  perennial_30m = 0,
+  shrub_30m = 0,
+  sl_ = 1000,
   ta_ = 0 )
 
-# Calculate log-RSS
-lr2 <- log_rss(m_sg, s3, s1)
+# Calculate log-RSS for our top model
+lr2 <- log_rss(m2_sg, s3, s1)
+
+#view
+head( lr2$df )
 
 # Plot log-RSS using ggplot2
-ggplot( lr2$df, aes(x = sage_30m_x1, y = log_rss) ) +
+ggplot( lr2$df, aes(x = annual_30m_x1, y = log_rss) ) +
   geom_line(size = 1) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray30") +
-  xlab("Sagebrush (SD)") +
-  ylab("log-RSS vs Mean Sagebrush") +
+  xlab("Annual (SD)") +
+  ylab("log-RSS vs Mean Annual") +
   theme_bw( base_size = 16 )
+#the line depicts the log-RSS between each value of s1 relative to s2.
+# Remember that these locations only differ in their values of annual
 
-# Plot RSS using ggplot2
-ggplot( lr2$df, aes(x = sage_30m_x1, y = exp(log_rss) ) ) +
+# To plot the changes in relative selection strength instead #
+# we exponentiate the log_rss
+ggplot( lr2$df, aes(x = annual_30m_x1, y = exp(log_rss) ) ) +
   geom_line(size = 1) +
   geom_hline(yintercept = 1, linetype = "dashed", color = "gray30") +
-  xlab("Sagebrush (SD)") +
-  ylab("RSS vs Mean Sagebrush") +
+  xlab("Annual (SD)") +
+  ylab("RSS vs Mean Annual") +
   theme_bw( base_size = 16 )
 
 
-###
+########## compare our empirical movement parameters to those estimated #
+# from the top model:
+# Estimate empirical distributions for individual of interest:
+emp_d_sl <- df_one %>%
+  dplyr::select( sl_ ) %>% 
+  fit_distr( ., dist_name = "gamma" )
+#view
+emp_d_sl
+#now for turning angle using a von mises, circular distribution:
+emp_d_ta <- df_one %>% 
+  dplyr::select( ta_ ) %>% 
+  fit_distr( ., dist_name = "vonmises" )
+#view
+emp_d_ta
 
 #Assign the empirical distributions to our model:
-m_sg$sl_ <- emp_d_sl
-m_sg$ta_ <- emp_d_ta
+m1_sg$sl_ <- emp_d_sl
+m1_sg$ta_ <- emp_d_ta
 
 # Now we can use coefficients associated with movement parameters
 # to update our movement related distributions for the same individual. #
@@ -227,10 +338,10 @@ m_sg$ta_ <- emp_d_ta
 # Fieberg et al. 2021 to see the equations that you need to use to manually #
 # update those parameters #
 # Update step length distribution:
-updated_sl <- update_sl_distr( m_sg, 
+updated_sl <- update_sl_distr( m1_sg, 
             beta_sl = 'sl_', beta_log_sl =  'log(sl_)' )
 #update turning angle distribution:
-updated_ta <- update_ta_distr( m_sg, 
+updated_ta <- update_ta_distr( m1_sg, 
               beta_cos_ta = "cos(ta_)" )
 #view
 updated_sl
@@ -238,8 +349,7 @@ updated_ta
 
 #plot movement parameter distributions
 # Start by reminding ourselves of step lengths of the individual
-df %>% dplyr::filter( id == 4 ) %>%
-  ggplot( . ) +
+  ggplot( df_one ) +
   theme_bw( base_size = 16 ) +
   geom_histogram( aes( x = sl_ ) )
 
@@ -257,8 +367,7 @@ plot( density( dgamma( 1:300, shape = updated_sl$params$shape,
      )
 
 #histogram of turning angles for the individual:
-df %>% dplyr::filter( id == 4 ) %>%
-  ggplot( . ) +
+ggplot( df_one ) +
   theme_bw( base_size = 16 ) +
   geom_histogram( aes( x = ta_ ) )
 
@@ -270,9 +379,6 @@ plot( density( circular::dvonmises( seq(from = -1 * pi, to = pi, length.out = 10
 plot( density( circular::dvonmises( seq(from = -1 * pi, to = pi, length.out = 100), 
                           mu = updated_ta$params$mu,
                           kappa = updated_ta$params$kappa ) ) )
-# Note that the kappa parameter in the updated distribution is negative,#
-# which is not allowed. Maybe this is due to not removing the non-movement #
-# locations ahead of creating steps? # 
 
 # We can also use hypothetical locations to interpret how the individual #
 # is moving. we use the updated distribution to estimate the likelihood #
@@ -280,117 +386,172 @@ plot( density( circular::dvonmises( seq(from = -1 * pi, to = pi, length.out = 10
 # which for our individual is short, and a long step. # 
 
 # estimate likelihood for short step:
-short <- dgamma(20, 
+short <- dgamma( 100, 
                  shape = updated_sl$params$shape,
-                 scale = updated_sl$params$scale)
+                 scale = updated_sl$params$scale )
 #now for long step
-long <- dgamma(100, 
+long <- dgamma( 5000, 
                   shape = updated_sl$params$shape,
-                  scale = updated_sl$params$scale)
+                  scale = updated_sl$params$scale )
 # calculate selection:
 short/long
-# individual is 5.4 times more likely to take the shorter than the 
+# individual is 11.9 times more likely to take the shorter than the 
 # longer step when all habitat conditions are the same
 ####end analysis of single individual ###
+#########################################################################
 #######  fit movement model for all individuals in glmmTMB ############
-#Start by replicating the approach for one individual only #
-# the only difference is that we add weights:
-#create subsetted dataframe
-newdf <- df %>%  filter( id == 4 )
-#define model structure 
-m1.struc <- glmmTMB( case_ ~ sage_30m + 
-                    #add movement parameters
-                    sl_ + log(sl_) + 
-                      cos(ta_) +
-                    #define random effects
-                    ( 1| step_id_ ),# + 
-                    family = poisson, data = newdf, 
-                    weights = weight,
-                    doFit=FALSE ) 
-
-# fix variance
-m1.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
-# tell it not to change variance for strata
-m1.struc$mapArg <- list( theta = factor( NA ) )
-
-#then fit the model
-m1 <- glmmTMB::fitTMB( m1.struc )
-#view results
+# for all individuals firstly ignoring individual differences:
+m1 <- glmmTMB( case_ ~ 0 + annual_30m + perennial_30m + shrub_30m + 
+                       #add movement parameters
+                       sl_ + log(sl_) + cos(ta_) +
+                       #define random effects
+                       ( 1| step_id_ ), 
+                     family = poisson, data = df_scl, 
+                     #define weights
+                     weights = weight, 
+                     #tell it not to change variance for step level
+                     map = list( theta = factor( c(NA ) ) ),
+                     #fix variance for step level random intercept
+                     start = list( theta = c( log( 1e3 ) ) )
+                     ) 
+#view
 summary( m1 )
-# results are similar
+# what happened?
+# Answer:
+# 
+# What are possible solutions? 
+# Answer
+df_scl$sl_ = df_scl$sl_ /1000 
 
-# After testing our model on a single individual we move to estimate #
-# parameters for all individuals:
-# for all individuals we can add the individual random intercepts:
-m2.struc <- glmmTMB( case_ ~ sage_30m + 
+#Next by adding random slopes for movement and habitat parameters
+m2 <- glmmTMB( case_ ~ 0 + annual_30m + perennial_30m + shrub_30m +  
                        #add movement parameters
                        sl_ + log(sl_) + cos(ta_) +
                        #define random effects
                        ( 1| step_id_ ) + 
-                       ( 1| id ), 
-                     family = poisson, data = df, 
-                     doFit=FALSE ) 
-
-# fix variance
-m2.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
-# tell it not to change variance
-m2.struc$mapArg <- list( theta = factor( c(NA, 1) ) )
-
-#then fit the model
-m2 <- glmmTMB::fitTMB( m2.struc )
-summary( m2 )
-
-# We can also add random slopes for movement and habitat parameters
-m3.struc <- glmmTMB( case_ ~ sage_30m + 
-                       #add movement parameters
-                       sl_ + log(sl_) + cos(ta_) +
-                       #define random effects
-                       ( 1| step_id_ ) + 
-                       ( 1| id ) +
-                       ( 0 + sage_30m | id ) +
-                       ( 0 + sl_ | id ) +
+                       ( 0 + annual_30m | id ) +
+                       ( 0 + perennial_30m | id ) +
+                       ( 0 + shrub_30m | id ) +
+                      ( 0 + sl_ | id ) +
                        ( 0 + log(sl_) | id ) +
                        ( 0 + cos(ta_) | id ),
-                     family = poisson, data = df, 
-                     weights = weight, doFit=FALSE ) 
+              family = poisson, data = df_scl, 
+               #define weights
+               weights = weight, 
+               #tell it not to change variance for step level
+               map = list( theta = factor( c(NA, 1:6 ) ) ),
+               #fix variance for step level random intercept
+               start = list( theta = c( log( 1e3 ),0,0,0,0,0,0 ) )
+               ) 
+#view
+summary( m2 )
 
-# fix variance
-m3.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
-# tell it not to change variance
-m3.struc$mapArg <- list( theta = factor( c(NA, 1:5) ) )
+# We have another go at interactions
+m3 <- glmmTMB( case_ ~ 0 + annual_30m + perennial_30m + shrub_30m +  
+                       #add movement parameters
+                  sl_ +log(sl_) + cos(ta_) +
+                 #add interactions between movements and habitats
+                 log(sl_):annual_30m + log(sl_):perennial_30m + 
+                 log(sl_):shrub_30m +
+                 cos(ta_):annual_30m + cos(ta_):perennial_30m +
+                 cos(ta_):shrub_30m +
+                 #define random effects
+                 ( 1| step_id_ ) + 
+                 ( 0 + annual_30m | id ) +
+                 ( 0 + perennial_30m | id ) +
+                 ( 0 + shrub_30m | id ) +
+                 ( 0 + sl_ | id ) +
+                 ( 0 + log(sl_) | id ) +
+                 ( 0 + cos(ta_) | id ),
+               family = poisson, data = df_scl, 
+               #define weights
+               weights = weight, 
+               #tell it not to change variance for step level
+               map = list( theta = factor( c(NA, 1:6 ) ) ),
+               #fix variance for step level random intercept
+               start = list( theta = c( log( 1e3 ),0,0,0,0,0,0 ) )
+)
 
-#then fit the model
-m3 <- glmmTMB::fitTMB( m3.struc )
+
 summary( m3 )
 
-# it seems like our model was overly ambitious and couldn't estimate
-# slopes for the step length parameters. We simplify it assuming #
-# that they have similar slopes among individuals
-m4.struc <- glmmTMB( case_ ~ sage_30m + 
-                       #add movement parameters
-                       sl_ + log(sl_) + cos(ta_) +
-                       #define random effects
-                       ( 1| step_id_ ) + 
-                       ( 1| id ) +
-                       ( 0 + sage_30m | id ) +
-                       ( 0 + cos(ta_) | id ),
-                     family = poisson, data = df, 
-                     weights = weight, doFit=FALSE ) 
+# Which model is our top model? 
+# How do you interpret results from it?
+# Answer:
+# 
 
-# fix variance
-m4.struc$parameters$theta[ 1 ] <- log( 1e3 ) 
-# tell it not to change variance
-m4.struc$mapArg <- list( theta = factor( c(NA, 1:3) ) )
+##############################################################################
+################### visualizing top model results ############
+#pull out random effects at the id level #
+ran.efs <- ranef( m2 )$cond$id
+#note that we don't want the ones at the step level
 
-#then fit the model
-m4 <- glmmTMB::fitTMB( m4.struc )
-summary( m4 )
-# this model has a lower AIC than the one that doesn't include #
-# any random slopes and so it seems like we can account for individual #
-# specific differences between selection for sagebrush and movement #
-# in relation to turning angles #
+#pull out fixed effects
+fix.efs <- fixef( m2 )$cond
+#view
+fix.efs
+
+#we need to add the fixed effect to the random for each vegetation 
+# and exponentiate our results
+rss <- ran.efs
+rss[,1 ] <- exp( rss[,1] + fix.efs[1] )
+rss[,2 ] <- exp( rss[,2] + fix.efs[2] )
+rss[,3 ] <- exp( rss[,3] + fix.efs[3] )
+rss[,4 ] <- exp( rss[,4] + fix.efs[4] )
+rss[,5 ] <- exp( rss[,5] + fix.efs[5] )
+rss[,6 ] <- exp( rss[,5] + fix.efs[6] )
+#create id column
+rss$id <- as.numeric(  rownames( rss ) )
+#view
+round(rss,2)
+# now extract additional details from our steps dataframe to combine 
+# with our results
+iddf <- df_steps %>% 
+  group_by( id, territory, sex ) %>% 
+  summarise( annual_30m_mean = mean( annual_30m, na.rm = TRUE),
+             perennial_30m_mean = mean( perennial_30m, na.rm = TRUE),
+             shrub_30m_mean = mean( shrub_30m, na.rm = TRUE),
+             mean_sl =  mean(sl_, na.rm = TRUE),
+             log_sl = log( mean(sl_, na.rm = TRUE) ),
+             cos_ta = cos( mean(ta_, na.rm = TRUE) ) 
+  )
+iddf
+#combine with our resource selection strength estimates
+iddf <- left_join( iddf, rss, by = "id" )
+
+#plot results
+ggplot( iddf ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean annual cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point( aes( x = annual_30m_mean , y = annual_30m, color = sex ) ) +
+  geom_hline( yintercept = 1, linewidth = 1 )
+
+ggplot( iddf ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean perennial cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point( aes( x = perennial_30m_mean , y = perennial_30m, color = sex ) ) +
+  geom_hline( yintercept = 1, linewidth = 1 )
+
+ggplot( iddf ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean shrub cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point( aes( x = shrub_30m_mean , y = shrub_30m, color = sex ) ) +
+  geom_hline( yintercept = 1, linewidth = 1 )
+
+ggplot( iddf ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean perennial cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point( aes( x = perennial_30m_mean , y = perennial_30m, color = sex ) ) +
+  geom_hline( yintercept = 1, linewidth = 1 )
 
 
+# What else could we add to our analysis?
+# Answer: 
+# 
 ##########################################################################
 ### Save desired results                                  #
 
