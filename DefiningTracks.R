@@ -39,8 +39,6 @@ rm( list = ls() )
 # Set working directory. This is the path to your Rstudio folder for this 
 # project. If you are in your correct Rstudio project then it should be:
 getwd()
-# if so then:
-workdir <- getwd()
 
 # set path to where you can access your data #
 # Note that the path will be different for your.#
@@ -425,7 +423,9 @@ write_rds( trks.thin, "Data/trks.thin" )
 
 #save migration data (unthinned)
 write_rds( trks.mig, "Data/trks.mig" )
-
+### save locals data too
+#Answer:
+#
 #save workspace in case we need to make changes
 save.image( "TracksWorkspace.RData" )
 
