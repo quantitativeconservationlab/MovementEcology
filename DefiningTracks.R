@@ -8,7 +8,7 @@
 # of 2021 at Morley Nelson Birds of Prey NCA.                      #
 # Data were collected for multiple individuals and at #
 # different frequencies including 2 sec intervals when the individuals#
-# were moving (every 2-3 days), and 30min? fixes otherwise to define #
+# were moving (every 2-3 days), and 30min fixes otherwise to define #
 # breeding season range. # Frequency shifted to hourly once #
 # individuals left their breeding grounds. #
 #################################################################
@@ -278,7 +278,7 @@ trks <- datadf %>%
 # Reproject to UTM to convert lat lon to easting northing:
 #trks <- amt::transform_coords( trks, crstracks )
 trks <- amt::transform_coords( trks, crs_to = crstracks )
-#Turn into a tibble list by groupping and nest by individual IDs:
+#Turn into a tibble list by grouping and nest by individual IDs:
 trks <- trks %>%  amt::nest( data = -"id" )
 #view
 trks
@@ -313,21 +313,23 @@ ymax <- as.numeric(st_bbox(NCA_Shape)$ymax) + 10000 #627081.5
 
 #subset those tracks less than as breeding and those > as migrating:
 trks <- trks %>% mutate(
-  breeding = map( data, ~ filter(., x_ < xmax ) ),
-  migrating = map( data, ~ filter(., x_ >= xmax ) ) )
+  breeding = map( data, ~ filter(., x_ < xmax ) ) )
 
 trks <- trks %>% mutate(
-  breeding = map( breeding, ~ filter(., y_ < ymax ) ),
-  migrating = map( migrating, ~ filter(., y_ >= ymax ) ) )
+  breeding = map( breeding, ~ filter(., y_ < ymax ) ) )
 
 #some individuals come back to overwinter at the NCA and so #
 # we need to remove those records as well #
 # we do so using month column to remove anything after June
 trks <- trks %>% mutate(
-  breeding = map( breeding, ~filter(., mth < 7 ) )
+  breeding = map( breeding, ~filter(., mth < 7 ) ),
+  migrating = map( data, ~filter(., mth > 6 ) ),
+  locals = map( migrating, ~ filter(., x_ < xmax ) ),
+  locals = map(locals, ~ filter(., y_ < ymax ) ) 
 )
 
-#we check that it worked for our breeding data
+# We focus on breeding season data for visualization as that is the 
+# one of interest in latest weeks. 
 for( i in 1:dim(trks)[1]){
   a <- as_sf_points( trks$breeding[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
@@ -337,14 +339,14 @@ for( i in 1:dim(trks)[1]){
   print(a)
 } 
 
-# We focus on breeding season data for visualization as that is the 
-# one of interest in latest weeks. But you can choose to view migration 
-# data as well. 
-
+# For homework plot the locals instead.#what do you note? are they all overwintering
+# at the NCA? which ones are? List individuals here:
+#Answer:
+#
 # Despite us setting a sampling (fix) rate for our transmitters, bad weather, 
 # thick canopy etc can cause fix attempts to fail. Our fix rate may therefore 
-# not be exactly what we set it for. If we want measures of distance (step lenghts),
-# or we want to use this data for SSFs, iSSFs or HMMs (movement models) in discrete 
+# not be exactly what we set it for. If we want measures of distance (step lengths),
+# or we want to use this data for  AKDE, SSFs, iSSFs or HMMs (movement models) in discrete 
 # time, we need fix rates to be equally spaced. The first step to do this is to
 # estimate sampling rate for each individual by looping through 
 # data using purr function map
@@ -362,33 +364,20 @@ sumtrks[[1]]
 # we will choose two sampling rates 30min (median value) for Range analysis #
 # and RRFs and 5sec for movement questions, SSFs, iSSFs. 
 
-# Here we take breeding season data and resample at 5 seconds, allowing +- 4sec:
+
 trks.all <- trks %>% mutate(
+  # Here we take breeding season data and resample at 5 seconds, allowing +- 4sec:
   highres = map( breeding, function(x) x %>%  
           track_resample( rate = seconds(5), 
                            tolerance = seconds(4) ) ),
-  steps = map( breeding, function(x) 
-    x %>%  track_resample( rate = seconds(5), 
-                           tolerance = seconds(4)) %>% 
-      steps_by_burst() ) )
+  #Now repeat the process but with 30 min sampling rate 
+  red = map(breeding, function( x ) x %>%  
+               track_resample( rate = minutes(30),
+               tolerance = minutes(5) ) ) ) 
 #view
 trks.all
-
 #note that this creates a new set of tibbles called steps - that uses
 # the breeding season data
-
-#Now I repeat the process but instead use a 30 min sampling rate for my
-# breeding season data. 
-trks.all <- trks.all %>% 
-  mutate(red = map(breeding, function( x ) x %>%  
-               track_resample( rate = minutes(30),
-               tolerance = minutes(5) ) ),
-         red.steps = map( breeding, function(x) x %>%  
-           track_resample( rate = minutes(30), 
-                                  tolerance = minutes(5)) %>% 
-             steps_by_burst() ) )
-#view
-trks.all
 
 #Now unnest the dataframes of interest
 #Pull out the 5sec breeding season data
@@ -396,67 +385,44 @@ trks.breed <- trks.all %>% dplyr::select( id, highres ) %>%
   unnest( cols = highres ) 
 tail( trks.breed )
 
-#At that same 5sec intervals pull out the step data (where step lengths
-# and turning angles are calculated )
-trks.steps <- trks.all %>% dplyr::select( id, steps ) %>% 
-  unnest( cols = steps ) 
-head( trks.steps )
+#you can also plot them once you unnested the resampled points for fine tune cleaning 
+trks.breed %>% 
+  #dplyr::filter( jday < 178 ) %>% 
+as_sf_points( . ) %>% 
+  #plot with ggplot
+  ggplot( . ) +
+  theme_bw( base_size = 17 ) + 
+  geom_sf( aes( colour = as.factor(jday) ) ) +
+  #plot separate for each individual
+  facet_wrap( ~id )
+
+#we remove remaining migrating tracks
+trks.breed <- trks.breed %>% dplyr::filter( jday < 178 )
 
 # Now for 30min intervals
 trks.thin <- trks.all %>% dplyr::select( id, red ) %>% 
-  unnest( cols = red ) 
+  unnest( cols = red ) %>% dplyr::filter( jday < 178 )
 tail( trks.thin )
 
-# 30min step data
-trks.steps30 <- trks.all %>% dplyr::select( id, red.steps ) %>% 
-  unnest( cols = red.steps ) 
-tail( trks.steps30 )
-
-
-#Also save migration data:
+#Also migration data:
 trks.mig <- trks.all %>% dplyr::select( id, migrating ) %>% 
   unnest( cols = migrating ) 
 head( trks.mig )
-#############################################################
-########## step lengths and turning angles  ##################
-#########################
-# We can plot step lengths by:
-#trks.steps30 %>% 
-trks.steps %>%   
-  ggplot(.) +
-  #geom_density( aes( x = sl_, fill = as.factor(burst_)), alpha = 0.4 ) +
-  geom_histogram( aes( x = sl_ ) ) +
-  xlab("Step length" ) + 
-  #ylim( 0, 0.01 ) + xlim(0, 2000 ) +
-  theme_bw( base_size = 19 )  +
-  theme( legend.position = "none" ) +
-  facet_wrap( ~id, scales = 'free_y' )
-#What does the plot tell us about the step lengths traveled by the individual?
-# Answer:
 
+### repeat here creating the unnesting for locals!
+## remove all individuals that did not overwinter at NCA using #
+# the plot to determine which ones to keep.
+#Answer:
 #
-# Turning angles:
-trks.steps %>% #filter( id == 1 ) %>% 
-  ggplot( .) +
-  geom_histogram( aes( x = ta_ ) ) +
-  #geom_histogram( aes( x = direction_p ) ) +
-  #coord_polar() +
-  ylab("Turning angle") + xlab("") + 
-  theme_bw( base_size = 19 ) +
-  facet_wrap( ~id, scales = 'free_y' )
-# Is there any evidence of biased movements for this individual?
-# Answer:
-# 
+
 #############################################################################
 # Saving relevant objects and data ---------------------------------
 #save breeding season data (not thinned)
 write_rds( trks.breed, "Data/trks.breed")
-#save breeding season data (turned into steps)
-write_rds( trks.steps, "Data/trks.steps" )
+
 #save breeding season data (thinned)
 write_rds( trks.thin, "Data/trks.thin" )
-#save breeding season data (steps thinned)
-write_rds( trks.steps30, "Data/trks.steps30" )
+
 #save migration data (unthinned)
 write_rds( trks.mig, "Data/trks.mig" )
 
