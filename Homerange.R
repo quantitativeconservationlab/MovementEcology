@@ -15,7 +15,6 @@ library( tidyverse ) #easy data manipulation
 options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt )
 library( sp )
-library( lubridate ) #easy date manipulation
 
 #####################################################################
 ## end of package load ###############
@@ -25,17 +24,17 @@ library( lubridate ) #easy date manipulation
 # Clean your workspace to reset your R environment. #
 rm( list = ls() )
 
-# # Set working directory. This is the path to your Rstudio folder for this 
-# # project. If you are in your correct Rstudio project then it should be:
-# getwd()
-# # if so then:
-# workdir <- getwd()
-
 # load workspace 
 #load( "homerangeresults.RData" )
 
 #load the thinned (30min) data
 trks.thin <- read_rds( "Data/trks.thin" )
+
+#load 5 sec data for comparison
+trks.breed <- read_rds( "Data/trks.breed" )
+
+#import polygon of the NCA as sf spatial file:
+NCA_Shape <- sf::st_read( "Data/BOPNCA_Boundary.shp" )
 
 ###############################################################
 ##### Comparing different estimators for occurrence      #######
@@ -49,8 +48,8 @@ trks.thin <- read_rds( "Data/trks.thin" )
 #check if object has coordinate system in the right format
 get_crs( trks.thin )
 #view data
-head( trks.thin, 50)
-
+head( trks.thin, 10)
+head(trks.breed )
 # MCP and KDE rely on data with no autocorrelation. But
 # how do we check for autocorrelation to determine if # 
 # we need to thin data further?
@@ -75,7 +74,27 @@ for( i in 1:dim(trks.thin)[1] ){
 # Answer:
 # 
 
-# We start by calculating MCP and KDE for each individual:
+#if you are struggling to determine that maybe we can compare
+# against our 5 second data, which we know will be correlated:
+par( mfrow = c( 2,3 ) )
+for( i in 1:dim(trks.breed)[1] ){
+  #select x location of each individual
+  x <- trks.breed %>% dplyr::filter( id == i ) %>% 
+    #select( x_ )
+    select( y_ )
+  #select(speed )
+  #select( alt )
+  #calculate autocorrelation function:
+  acf( x, lag.max = 500,
+       main = paste0( "individual = ", i ) )
+  #Note we modified the lag.max 
+}
+#What do you see regarding autocorrelation?
+#Answer:
+# 
+
+# we keep the 30min interval and can now 
+# start by calculating MCP and KDE for each individual:
 ranges <- trks.thin %>% 
   #we group tibbles for each individual:
   nest( data = -"id" ) %>% 
@@ -91,7 +110,20 @@ ranges <- trks.thin %>%
 #view
 ranges
 
-#plot KDEs:
+#plot MCPs:
+ranges %>%
+  hr_to_sf( hr_mcp, id, n ) %>% 
+  ggplot( . ) +
+  theme_bw( base_size = 17 ) + 
+  geom_sf( aes(color= as.factor(id) ) )  +
+  geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
+  theme( legend.position = "none" ) +
+  facet_wrap( ~id )
+
+#save the MCP only so that we can plot it against the KDE:
+mcps <- ranges %>%
+  hr_to_sf( hr_mcp, id, n )
+#plot both methods:
 #select tibble 
 ranges %>%
   #choose one home range method at a time
@@ -100,80 +132,114 @@ ranges %>%
   #plot with ggplot
   ggplot( . ) +
   theme_bw( base_size = 17 ) + 
-  geom_sf() +
+  geom_sf( aes( fill = as.factor(id)), 
+           linewidth = 0.8, alpha = 0.6 ) +
+  geom_sf( data = mcps, colour = "black",
+          linewidth = 1, fill = NA ) +
+  geom_sf(data = NCA_Shape, inherit.aes = FALSE, fill=NA ) +
+  theme( legend.position = "none" ) +
   #plot separate for each individual
   facet_wrap( ~id )
 
-#plot MCPs:
-ranges %>%
-  hr_to_sf( hr_mcp, id, n ) %>% 
-  ggplot( . ) +
-  theme_bw( base_size = 17 ) + 
-  geom_sf() +
-  facet_wrap( ~id )
+#which individuals show the biggest variation between the two methods?
+#Answer:
+#
 
-#We can see large variation of home range sizes between individuals#
+#Is there evidence that sample size is affecting differences among 
+#individuals? How are you deciding your answer?
+#Answer:
+#
+
+# Using KDE we can see large variation among individuals#
 # during the breeding season. Is it real? We know our sampling wasn't #
 # consistent. To account for our variable sampling, we can plot #
 # estimated occurrence distributions weekly. #
 
-# recalculate n and homerange estimates
+# recalculate n and weekly range estimates for kdes:
 hr_wk <- trks.thin %>%  
       # we nest by id and week
-      nest( data = -c(id, wk) ) %>%
+      nest( data = -c(id, wk, sex ) ) %>%
       mutate( n = map_int(data, nrow) ) %>% 
   #remove weeks without enough points
   filter( n > 15 ) %>% 
   mutate( #now recalculate weekly home range
-  hr_mcp = map(data, ~ hr_mcp(., levels = c(0.5, 0.9)) ),
   hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.9)) ))
 
-#plot weekly home ranges
-#define a vector with individual ids
-ids <- unique( hr_wk$id )
+#plot weekly ranges for each individual at a time so that
+# we can focus on within-individual differences
+#define a vector with individual ids to loop through
+ids <- hr_wk %>% 
+  group_by( id ) %>% 
+  slice( 1 ) %>% 
+  dplyr::select( id, sex )
+
 # this way you can loop through each individual
-for( i in 1:length(ids)){
-  #convert point locations to sf object for each animal
-  points <- as_sf_points( trks.thin %>% filter( id == ids[i] ))
-  #extract data for one home range method at a time:
-  #mcp
-  wp1 <- hr_wk %>% filter( id == ids[i] ) %>% 
-    hr_to_sf( hr_kde, id, mth, n ) %>% 
-    filter( level == 0.9 )
-  #now for mcp
-  wp <- hr_wk %>% filter( id == ids[i] ) %>% 
-  hr_to_sf( hr_mcp, id, mth, n ) %>% 
-    filter( level == 0.9 ) %>% 
+for( i in ids$id ){
+# #filter data for one individual at a time:
+wp <- hr_wk %>% filter( id == ids$id[i] ) %>% 
+#turn range estimates to sf objects, keeping relevant id details
+hr_to_sf( hr_kde, id, sex, wk, n ) %>% 
   #plot with ggplot
   ggplot( . ) +
-  theme_bw( base_size = 15 ) + 
-  # start with mcp which is part of the piping
-  geom_sf(aes( fill = as.factor(mth) ) ) +
-  # to add kde then define separate data object
-  geom_sf( data = wp1, aes( colour = as.factor(mth)), 
-           alpha = 0, size = 2 ) +
-    #scale_x_continuous( breaks = c( -117.0,-116.0, -115.0 ) ) +  
-  #add used locations:
-  geom_sf( data = points ) +
-  labs( title = ids[i], fill = "month", x = "lat") +
-  #plot separate for each indvidual
-  facet_wrap( ~mth )
+  theme_bw( base_size = 13 ) + 
+  # color code weekly ranges by week
+  geom_sf( aes( fill = as.factor(wk),color = as.factor(wk) ), 
+           alpha = 0.3, linewidth = 1 ) +
+  #add used locations from 5 sec data as a check:
+  geom_sf( data = as_sf_points( trks.breed %>% 
+                  filter( id == ids$id[i] ) ),
+           size = 0.5 ) +
+  #add NCA polygon
+#  geom_sf(data = NCA_Shape, inherit.aes = FALSE, fill=NA ) +
+  #add labels including individual ID and sex as title
+  labs( title = paste( ids$id[i], ids$sex[i] ),
+    fill = "week", color = "week", x = "lat" ) + 
+  #choose legend location
+  theme( legend.position = "bottom" ) +
+  #plot separate for each week
+  facet_wrap( ~wk )
  # prints each individual separately
-  print( wp )
+   print( wp )
 }
 
-#plot tracks
-ggplot( trks.thin, aes( x = x_, y = y_, color = as.factor(wk) ) ) +
+
+# to help us work out where we are in the season we extract initial 
+# dates for each week
+trks.thin %>% group_by(wk ) %>% 
+  slice( 1 )
+#How are the range distributions changing on a weekly basis?
+# Answer:
+#
+
+#Which weeks do you remove for each individual:
+#Answer:
+#
+
+#update the hr_wk tibble by removing those weeks without enough
+# data:
+#code here:
+#
+
+#Replot weekly trends excluding those incomplete weeks, are there any seasonal trends 
+# in range use for each individual?
+#Answer:
+#
+
+
+#Let's compare how our 30m and 5 sec tracks compare tracks
+ggplot( trks.breed, aes( x = x_, y = y_ ) ) +
   theme_bw( base_size = 15 ) +
-  geom_point( size = 2 ) +
-  facet_wrap( ~as.factor(id), scales = "free" )
+  geom_point( size = 0.5 ) +
+  geom_point( data = trks.thin, color = "red",
+           size = 1 ) +
+  facet_wrap( ~id, scales = "free" )
 
 ###### Estimating home range area ##########################
-# We can also calculate the weekly area. We take weekly home ranges#
-# remove tracking data and convert to long dataframe
-hr_area <- hr_wk %>%  select( -data ) %>% 
+# We can also calculate the range size area.
+hr_area <- ranges %>%  select( -data ) %>% 
   pivot_longer( hr_mcp:hr_kde, names_to = "estimator", 
                 values_to = "hr" )
+
 #view
 hr_area
 # The we calculate area for each method 
@@ -183,12 +249,16 @@ hr_area <- hr_area %>%
 #convert area in m^2 to area in km^2 
 hr_area$area_km <- hr_area$area / 1e6
 
+#add sex attribute 
+hr_area <- left_join( hr_area, ids, by = "id" )
+#check
+head(hr_area)
 #plot 
 hr_area %>% 
   #choose desired level 
   filter( level  == 0.9 ) %>% 
-  ggplot( aes(col = as.character(id), y = area_km, x = wk )) + 
-  geom_line(size = 1.5) + 
+  ggplot( aes(x = as.character(id), y = area_km, 
+              color = sex ) ) + 
   geom_point(size = 4) +
   theme_light(base_size = 15) + 
   facet_wrap( ~estimator, nrow = 2, 
@@ -196,48 +266,37 @@ hr_area %>%
 # Comment on this graph
 #Answer:
 # 
-# Try a different level and comment on new output
+# Replot this with 50% area size.
+# Add Code:
+#
+# How do individuals and sexes differ between 90 and 50% 
+# breeding ranges? # what could you tentatively say about 
+# their ecology based on these results # 
 # Answer:
 #
 
-# we can also calculate mean and CIs of area in Km for each id:
-ci_wk <- hr_area %>% group_by(estimator, id, level ) %>% 
-  summarise( m = mean(area_km), 
-             se = sd(area_km) / sqrt(n()), 
-             me = qt(0.975, n() - 1) * se, 
-             lci = m - me, uci = m + me)
-#view
-ci_wk %>% filter( level  == 0.9 )
-
-# plot home ranges of each individual average across weeks:
-ci_wk %>% 
-  #choose desired level
-  filter( level  == 0.9 ) %>% 
-  ggplot(.) + 
-  geom_pointrange(aes(x = as.character(id), y = m, 
-                  ymin = lci, ymax = uci, col = estimator), 
-                  position = position_dodge2(width = 0.5)) +
-  ylim( 0,2000 ) +
-  theme_light(base_size = 15 )  
-# Comment on output
-# Answer:
-#
-
-# What other plots would be relevant for your specific question?
-# Answer:
-# Adapt to data here if possible. If not, provide details of what #
-# is missing from this dataset to achieve the desired plot?
-# Answer: 
+# optional question:
+# Adapt area size code to plot weekly changes in area size 
+# for the weekly ranges you subsetted 
+# Code Answer: 
 # 
 
 #### end of area ##############
-##############   Home range  for one individual ####################
 
 ###########################################################
 ### Save desired results                                  #
-#save breeding season data (not thinned)
-write_rds( hr_wk, "hr_wk")
-#save range area estimates
-write_rds( ci_wk, "ci_wk" )
-#save.image( 'homerangeresults.RData' )
+#if you are still getting through this script then save 
+# the workspace here so you don't have to rerun your code
+save.image( 'homerangeresults.RData' )
+
+# Once you are finished:
+#save breeding ranges
+write_rds( ranges, "ranges" )
+#save weekly home ranges
+write_rds( hr_wk, "hr_wk" )
+
+# save the homework plots and upload them to github 
+# Here:
+# 
+
 ############# end of script  ###########################################
