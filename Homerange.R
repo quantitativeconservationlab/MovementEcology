@@ -6,15 +6,14 @@
 # http://doi.org/10.7717/peerj.11031                             #
 ###################################################################
 
-################## prep workspace ###############################
-
+################## prep workspace ###############################7
 
 # load packages relevant to this script:
 library( tidyverse ) #easy data manipulation
 # set option to see all columns and more than 10 rows
 options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt )
-library( sp )
+#library( sp )
 
 #####################################################################
 ## end of package load ###############
@@ -49,7 +48,7 @@ NCA_Shape <- sf::st_read( "Data/BOPNCA_Boundary.shp" )
 get_crs( trks.thin )
 #view data
 head( trks.thin, 10)
-head(trks.breed )
+tail(trks.breed )
 # MCP and KDE rely on data with no autocorrelation. But
 # how do we check for autocorrelation to determine if # 
 # we need to thin data further?
@@ -116,7 +115,8 @@ ranges %>%
   ggplot( . ) +
   theme_bw( base_size = 17 ) + 
   geom_sf( aes(color= as.factor(id) ) )  +
-  geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
+  geom_sf(data = NCA_Shape, inherit.aes = FALSE, 
+          fill = NA ) +
   theme( legend.position = "none" ) +
   facet_wrap( ~id )
 
@@ -135,7 +135,7 @@ ranges %>%
   geom_sf( aes( fill = as.factor(id)), 
            linewidth = 0.8, alpha = 0.6 ) +
   geom_sf( data = mcps, colour = "black",
-          linewidth = 1, fill = NA ) +
+         linewidth = 1, fill = NA ) +
   geom_sf(data = NCA_Shape, inherit.aes = FALSE, fill=NA ) +
   theme( legend.position = "none" ) +
   #plot separate for each individual
@@ -202,7 +202,6 @@ hr_to_sf( hr_kde, id, sex, wk, n ) %>%
    print( wp )
 }
 
-
 # to help us work out where we are in the season we extract initial 
 # dates for each week
 trks.thin %>% group_by(wk ) %>% 
@@ -210,21 +209,6 @@ trks.thin %>% group_by(wk ) %>%
 #How are the range distributions changing on a weekly basis?
 # Answer:
 #
-
-#Which weeks do you remove for each individual:
-#Answer:
-#
-
-#update the hr_wk tibble by removing those weeks without enough
-# data:
-#code here:
-#
-
-#Replot weekly trends excluding those incomplete weeks, are there any seasonal trends 
-# in range use for each individual?
-#Answer:
-#
-
 
 #Let's compare how our 30m and 5 sec tracks compare tracks
 ggplot( trks.breed, aes( x = x_, y = y_ ) ) +
@@ -291,9 +275,9 @@ save.image( 'homerangeresults.RData' )
 
 # Once you are finished:
 #save breeding ranges
-write_rds( ranges, "ranges" )
+write_rds( ranges, "Data/ranges" )
 #save weekly home ranges
-write_rds( hr_wk, "hr_wk" )
+write_rds( hr_wk, "Data/hr_wk" )
 
 # save the homework plots and upload them to github 
 # Here:
