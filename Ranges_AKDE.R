@@ -11,6 +11,7 @@
 
 # Clean your workspace to reset your R environment. #
 rm( list = ls() )
+#uncomment and install the package if you haven't got it
 #install.packages( "ctmm" )
 
 # load packages relevant to this script:
@@ -28,79 +29,86 @@ library(ctmm ) #for more detailed functionality
 
 #load cleaned data:
 #download full data for breeding season monitoring of prairie #
-# falcons at the Birds of Prey NCA
+# falcons at the Birds of Prey NCA at 5sec resolution
 trks.breed <- read_rds( "Data/trks.breed" )
 #view
-trks.breed
+head( trks.breed )
 #download the thinned (30min) data
 trks.thin <- read_rds( "Data/trks.thin" )
 #view
-trks.thin
-#check class
-class( trks.thin )
-#check that the crs was correctly imported 
-get_crs( trks.thin )
+head( trks.thin )
+#download breeding ranges we estimated last week
+ranges <- read_rds( "Data/ranges" )
+#view import
+head( ranges )
 
 ###############################################################
 ##### Estimate ranges using AKDE continuous-time movement model:#
 ################################################################
 
-# We start by plotting points for each individual:
-#
-#you can choose which dataset by uncommenting and commenting lines 51 and 52 respectively
-#trks.breed %>% 
-trks.thin %>% 
-  group_by( id ) %>% 
-  as_sf_points() %>% 
-  summarise( do_union = FALSE ) %>%
-  st_cast("LINESTRING" ) %>% 
-  #uncommment the line below if you want to view one individual
-  #filter( id == 1 ) %>% 
-  ggplot(., aes( color = as.factor(id)
-                 ) ) +
-  theme_bw( base_size = 15 ) + 
-  geom_sf() 
+# We start by plotting line tracks for each individual drawn by the 30min fix
+# rates vs points at 5 sec resolution.
 
+#we start by joining 30min fixes for each individual with straight lines
+lines30min <- trks.thin %>%
+  group_by( id ) %>%
+  as_sf_points() %>%
+  summarise( do_union = FALSE ) %>%
+  st_cast("LINESTRING" ) 
+
+#then we plot 30min lines vs 5 sec points for each individual at a time
+for( i in unique(trks.thin$id) ){
+tp<-  ggplot() +
+  theme_bw( base_size = 15 ) + 
+  theme( legend.position = "none" ) +
+  geom_sf( data = as_sf_points( trks.breed ) %>% filter( id == i ), 
+           color = "black", size = 0.5 ) +
+  geom_sf( data = lines30min %>% filter( id == i ), 
+           aes( color = as.factor(id) ),
+           linewidth = 1.5 ) +
+  labs( title = i )
+
+print(tp)
+}
+
+#comment on this plot? what does it tell you compared to the 
+# plot where we only visualize points (last week) between the two 
+# resolutions without joining the 30min fixes? 
+# Answer:
+#
+#
 ####################################################################
 ############## estimating ranges in CTMM ###########################
 ###################################################################
 
 ######### variograms using ctmm ###############
-# We can use ctmm to explore the remaining autocorrelation in our data #
-#Compare variograms for thinned and unthinned data for 1 individual 
+# We use ctmm to explore autocorrelation in our data #
+# but using estimates of semi-variance instead of the acf() from 
+# last week.
+
+##### We start with a single individual  ######
 #choose an individual id:
-i <- 4
+i <- 2
 # filter tracks to select that individual's data
 t <- trks.thin %>% filter( id == i )
-a  <- trks.breed %>% filter( id == i )
 #convert to ctmm object
 ctmm.t <- as_telemetry( t )
-ctmm.a <- as_telemetry( a )
 #estimate empirical variograms
 svf.t <- variogram( ctmm.t )
-svf.a <- variogram( ctmm.a )
 #now plot them side by side
 par(mfrow = c(2,1) )
 plot(svf.t, fraction = 1, level = 0.95)
-plot(svf.a, fraction = 1, level = 0.95 )
 #now zoom in to starting time lags
-par(mfrow = c(2,1) )
 plot( svf.t, xlim = c(0,2 %#% "day"), 
      fraction = 1, level = 0.95 )
-plot(svf.a, xlim = c(0,2 %#% "day"), 
-     fraction = 1, level = 0.95 )
 
-#The high resolution plots took a long time on my computer....
-# Also note that it includes both sampling rates, the 30min and 
-# the 5 sec resolutions. Below we see how to account for 
-# variable sampling rate.
 ################
 ##################################################################
 ##### ALL individuals using ctmm     #############################
 ###################################################################
 #Plot variograms for all individuals
 # extract names for individuals first into an object
-ids <- 1:max( trks.thin$id )
+ids <- sort(unique( trks.thin$id ))
 #create objects to store results
 svf.t <- list()
 ctmm.t <- list()
@@ -108,7 +116,7 @@ xlimz <- c(0,36 %#% "hour" )
 #set plot parameters
 par( mfrow = c(3,3))
 #loop through all individuals 
-for( i in 1:length(ids) ){
+for( i in ids ){
   #print progress
   print( i )
   # extract data for individual i
@@ -120,38 +128,10 @@ for( i in 1:length(ids) ){
   #plot variograms for each individual
   plot( svf.t[[i]], xlim =  xlimz )
 }
-# Note how they are unique for each individual. This supports 
-# the authors suggestions to estimate unique movement models
-# for each individual
-
-# ### fast resolution fix rate ####
-# the fast resolution tracks have two sampling rates 30min and 5sec
-# we can account for variable sampling rates for each individual in 
-# our estimates of the variogram as follows: 
-#create objects to store results
-svf.f <- list()
-ctmm.f <- list()
-xlimz <- c(0,36 %#% "hour" )
-#set plot parameters
-par( mfrow = c(3,3))
-#loop through all individuals 
-for( i in 1:length(ids)){
-  #print progress
-  print( i )
-  # extract data for individual i
-  t <- trks.breed %>% filter( id == i )
-  #set variable sampling interval
-  dt <- c(5, 1800) %#% "second"
-  #convert to ctmm object and add to list
-  ctmm.f[[i]] <- as_telemetry( t )
-  #Calculate empirical variograms:
-  svf.f[[i]] <- variogram( ctmm.f[[i]], dt = dt )
-  #plot variograms for each individual
-  plot( svf.f[[i]], xlim =  xlimz )
-}
-### how are these varioagrams different with the different 
-# resolutions? 
+# How are they unique for each individual?
 # Answer:
+#
+
 #########
 ##############################################################
 # automate the process of estimating a suitable movement     #
@@ -163,11 +143,7 @@ for( i in 1:length(ids)){
 # "auto": uses model selection with AICc to find bets model  #
 # These model choices have real consequences to inference    #
 
-# for efficiency in the class I'm sticking to the thinned #
-# 30min data, moving forward. But you can choose high resolution #
-# using the fast variograms we created svf.f #
-
-
+### we try the model selection method for our class example ###
 #create and object to store results 
 m.best <- list()
 #loop through each individual
@@ -197,20 +173,31 @@ par(mfrow = c(2,2))
 for( i in 1:length(ids) ){
   #trace progress:
   print(i)
-  # # add basic IID model to model list
-  # m.best[[i]]$"IID isotropic" <- ctmm.fit( ctmm.t[[i]],
-  #                                   ctmm(isotropic = TRUE) )
+  # add basic IID model to model list
+  m.best[[i]]$"IID isotropic" <- ctmm.fit( ctmm.t[[i]],
+                                     ctmm(isotropic = TRUE) )
   #extract model name for top model
   an <- rownames(summary( m.best[[i]][1]))
   #plot best model
   ctmm::plot( svf.t[[i]], m.best[[i]][[1]], 
               xlim =  xlimz ,
         main = paste( ids[i], an ) )#best model
-  #plot OUF (best model for high resolution data)
-  ctmm::plot( svf.t[[i]], m.best[[i]]$"OUF anisotropic", 
+  #plot against traditional KDE
+  ctmm::plot( svf.t[[i]], m.best[[i]]$"IID isotropic", 
               xlim = xlimz,
-        main = paste( ids[i], "OUF anisotropic" ) ) 
+        main = paste( ids[i], "IID isotropic" ) ) 
 }  
+
+# Comment on the differences in the variance model assumptions
+# between akde and traditional kde ###
+# Answer:
+#
+
+# How consistent was the top model chosen among individuals?
+# For which individuals did it vary most? How?
+# Answer:
+# 
+
 # Now that we have estimated top movement models for each #
 # individual we are ready to apply those models to our estimates #
 # of ranges. We also have an extra option to choose from #
@@ -223,7 +210,7 @@ for( i in 1:length(ids) ){
 # we create objects to store output from our 3 options:
 akde.uw <- list()
 akde.w <- list()
-#kde.iid <- list()
+kde.iid <- list()
 # We loop through each individual to estimate ranges for each option:
 for( i in 1:length(ids) ){
   print(i)
@@ -232,8 +219,8 @@ for( i in 1:length(ids) ){
   # use your chosen movement model with weights
   akde.w[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]]$"OUF anisotropic", 
                         weights = TRUE )
-  # #using the IID movement model without weights
-  # kde.iid[[i]] <- ctmm::akde( ctmm.f[[i]], m.best[[i]]$"IID isotropic" )
+  #using the IID movement model without weights
+  kde.iid[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]]$"IID isotropic" )
 }
 #plot estimate ranges comparing output for each option:
 par(mfrow = c(3,2))
@@ -243,22 +230,9 @@ for( i in 1:length(ids) ){# 2
   title( paste("Weighted model", ids[i]) )
   plot( ctmm.t[[i]], akde.uw[[i]] )
   title("Unweighted model")
-  # plot( ctmm.f[[i]], kde.iid [[i]])
-  # title("Traditional KDE" )
+  plot( ctmm.t[[i]], kde.iid [[i]])
+  title("Traditional KDE" )
 }
-
-# akde.uw.t <- akde.uw
-# akde.w.t <- akde.w
-# kde.iid.t <- kde.iid
-
-#Plot points for those individuals
-trks.breed %>% 
-#trks.thin %>%   
-  dplyr::filter( id %in% 1:2 ) %>% 
-  ggplot(., aes( x = x_, y = y_ ) ) +
-  theme_bw( base_size = 15 ) + 
-  geom_point() +
-  facet_wrap( ~id, scales = "free" )
 
 #extract mean HR estimates for weighted and unweighted approaches 
 # as sf polygon and combine 
@@ -279,7 +253,7 @@ for( i in 1:length(ids) ){
 weighted_akdes <-  w_list %>%  dplyr::bind_rows()
 unweighted_akdes <-  u_list %>%  dplyr::bind_rows()
 
-#re-add attributtes for each individual
+#re-add attributes for each individual
 iddf <- trks.thin %>% 
   group_by( id ) %>% 
   select( id, territory, sex ) %>% 
@@ -302,137 +276,75 @@ head( weighted_akdes)
 #Plot comparisons from the different data choices
 ggplot() +
   theme_bw( base_size = 15 ) +
-  #compare against weighted ouf model using all data from ctmm
-  geom_sf( data = weighted_akdes, 
-           fill = NA, col = "purple", size = 2 ) +
-  #compare against unweighted ouf model using all data from ctmm
-  geom_sf( data = unweighted_akdes, 
-           fill = NA, col = "orange", size = 2 ) +
-  facet_wrap( ~name )
+#compare against weighted ouf model using all data from ctmm
+geom_sf( data = weighted_akdes,
+         fill = NA, col = "purple", linewidth = 2 ) +
+#compare against unweighted ouf model using all data from ctmm
+geom_sf( data = unweighted_akdes,
+         fill = NA, col = "orange", linewidth = 1 ) +
+  facet_wrap( ~id )
+
+## How do the two options compare?
+#Answer;
+#
+# For homework replot weighted and unweighted ranges for individual 3
+# adding the breeding range points for this individual
+# What conclusions can you draw from this new plot as to what may be 
+# causing differences?
+# Add code and answer below:
+#
+#
+# Save the plot and submit it with the code ####
+#####
 
 ##############################################################
 # Estimating AKDE using atm package                          #
 ##############################################################
-################
-# We use amt package (talks to ctmm) to estimate AKDE for a #
-# single individual to check for computational efficiency #
-
-# define the individual id as an object at the start so you can 
-# easily change it and try new ones, without having to alter the #
-# rest of the code
-i <- 1
-#filter data
-idv.thin <- trks.thin %>% filter( id == i )
-#inspect details for the chosen animal
-idv.thin
-
-# start estimating traditional KDE model
-f.t.iid <- amt::fit_ctmm( idv.thin, "iid" )
-#check
-summary( f.t.iid )
-
-#now fit the model chosen as top model by ctmm
-f.t.ouf <- amt::fit_ctmm( idv.thin, "ouf" )
-#summary values
-summary( f.t.ouf )
-#What is the run time for that individual?
-# Answer:
-#
-#Estimate ranges for that individual using the KDE 
-# approach that assumes no autocorrelation (traditional KDE)
-akde_iid <- idv.thin %>% 
-  amt::hr_akde(., model = f.t.iid, #fit_ctmm(., "iid" ),
-               levels = 0.95 )
-
-#run the ouf model
-akde_ouf <- idv.thin %>% 
-  amt::hr_akde(., model = f.t.ouf, #fit_ctmm(., "ouf" ),
-               weights = TRUE,
-               levels = 0.95 )
-### the weights option doesn't work eventhough no error is given#####
-# How do I know? I rerun without weights and got the exact same answer. #
-
-# #Instead of manually choosing, we could do model selection for each 
-# # individual using auto function
-# akde_auto <- idv.thin %>%
-#   amt::hr_akde( ., model = fit_ctmm(., "auto" ),
-#                 levels = 0.95 )
-
-#Estimate areas for each method
-amt::hr_area( akde_ouf ) 
-amt::hr_area( akde_iid ) 
-#amt::hr_area( akde_auto )
-# comment on the results
-# Answer:
-#
-
-#Plot comparisons from the different data choices
-ggplot() +
-  theme_bw( base_size = 15 ) +
-  # #extract isopleths for AKDE estimates from
-  # #model selection approach:
-  # geom_sf( data = hr_isopleths( akde_auto ),
-  #          fill = NA, col = "blue", size = 1 ) +
-  #extract isopleths for ouf model
-  geom_sf( data = hr_isopleths( akde_ouf ),
-           fill = NA, col = "black", size = 3 ) +
-  #extract isopleths for traditional kde:
-  geom_sf( data = hr_isopleths( akde_iid ), 
-           fill = NA, col = "grey", size = 2 ) +
-  #add points of autocorrelated data
-  # #note that we turn them into sf points for plotting
-  geom_sf( data = as_sf_points( subset( trks.breed, id == i )), 
-           col = "red" ) +
-   geom_sf( data = as_sf_points( subset( trks.thin, id == i ) ) ) #+
-  # geom_sf( data = as.sf( akde.w[[i]] ), 
-  #          fill = NA, col = "purple", size = 2 )
-
-
-##### What if you want to use atm for all individuals? #######
-##### don't try this in class. It will take a long time #
-
 #make sure individuals are in order so that they can be compared to ctmm results
 nested.thin <- trks.thin %>% 
   arrange( id ) %>% 
   nest( data = -"id" ) #nest tibbles
 
-#calculate home range using movement model you choose:
+#calculate home range using top movement model:
 akde_all <- nested.thin %>% 
   mutate( hr_akde_all = map( data, ~hr_akde( ., 
-              model = fit_ctmm(., "ouf" ),
-                levels = 0.95 ) ) )
+              model = fit_ctmm(., "ou" ),
+                levels = 0.9 ) ) )
 # 
 akde_all
 
 amt::hr_area( akde_all$hr_akde_all[[1]] ) 
 
-#Plot for all individuals against equivalent from ctmm
 for( i in 1:length(ids) ){
-  a <- ggplot() +
+#Plot for all individuals against equivalent from ctmm
+a <- ggplot() +
   theme_bw( base_size = 15 ) +
   #extract isopleths for ouf model using thinned data from amt
    geom_sf( data = hr_isopleths( akde_all$hr_akde_all[[i]] ),
-             col = "black", size = 3 ) +
+             col = "black", linewidth = 2 ) +
     geom_sf( data = as.sf( akde.uw[[i]] ), fill = NA, 
-             col = "purple", size = 3) +
-  labs( title = ids[i] )
-  print( a )
+             col = "purple", linewidth = 1 ) +
+  #add used locations from 5 sec data as a check:
+  geom_sf( data = as_sf_points( trks.breed %>% 
+                           filter( id == i ) ),
+           size = 0.5 ) +
+  labs( title = ids[i] ) 
+print(a)
 }
+# What is the discrepancy between the two outlines?
+# Answer:
+# 
+
 ###########################################################
 ### Save desired results #
-# we can save the movement model results
-#save range results for 3 home range options
-# save( akde.w,file="../ctmm_akde_w.rda")
-# save( akde.uw,file="../ctmm_akde_uw.rda")
-# save( kde.iid,file="../ctmm_akde_iid.rda")
 #save range for your selected individual using your preferred 
 # movement model 
-write_rds( akde_ouf, "Data/akde_ouf" ) 
 #save range for all individuals in atm
 write_rds( akde_all, "Data/akde_all" )
 #save range for all individuals estimated with ctmm
-write_rds( weighted_akdes, "Data/weighted_akdes_thinned" )
-write_rds( unweighted_akdes, "Data/unweighted_akdes_thinned" )
+#write_rds( weighted_akdes, "Data/weighted_akdes_thinned" )
+#write_rds( unweighted_akdes, "Data/unweighted_akdes_thinned" )
+
 #save workspace if in progress
 save.image( 'AKDEresults.RData' )
 ############# end of script  ##################################
