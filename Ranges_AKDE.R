@@ -27,7 +27,10 @@ library(ctmm ) #for more detailed functionality
 ###################################################################
 #### Load or create data -----------------------------------------
 
-#load cleaned data:
+#load workspace if you have already started working through this script#
+load( "AKDEresults.RData")
+
+#if you are starting from scratch load cleaned data:
 #download full data for breeding season monitoring of prairie #
 # falcons at the Birds of Prey NCA at 5sec resolution
 trks.breed <- read_rds( "Data/trks.breed" )
@@ -215,9 +218,9 @@ kde.iid <- list()
 for( i in 1:length(ids) ){
   print(i)
   # use your chosen movement model without weights
-  akde.uw[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]]$"OUF anisotropic" )
+  akde.uw[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]]$"OU anisotropic" )
   # use your chosen movement model with weights
-  akde.w[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]]$"OUF anisotropic", 
+  akde.w[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]]$"OU anisotropic", 
                         weights = TRUE )
   #using the IID movement model without weights
   kde.iid[[i]] <- ctmm::akde( ctmm.t[[i]], m.best[[i]]$"IID isotropic" )
@@ -238,21 +241,25 @@ for( i in 1:length(ids) ){# 2
 # as sf polygon and combine 
 w_list <- list()
 u_list <- list()
+i_list <- list()
 for( i in 1:length(ids) ){
   #extract home range for each animal and turn into sf object
   sf.w <- as.sf( akde.w[[i]] )
   sf.u <- as.sf( akde.uw[[i]] )
+  sf.i <- as.sf( kde.iid[[i]] )
   # convert crs to study area (otherwise their crs won't match)
   sf.w.t <- st_transform( sf.w, crs = get_crs( trks.thin ) ) 
   sf.u.t <- st_transform( sf.u, crs = get_crs( trks.thin ) ) 
+  sf.i.t <- st_transform( sf.i, crs = get_crs( trks.thin ) ) 
   #extract only the point estimate (mean range) and add to list
   w_list[[i]] <- sf.w.t[2,]
   u_list[[i]] <- sf.u.t[2,]
+  i_list[[i]] <- sf.i.t[2,]
 }
 
 weighted_akdes <-  w_list %>%  dplyr::bind_rows()
 unweighted_akdes <-  u_list %>%  dplyr::bind_rows()
-
+kde_akdes <-  i_list %>%  dplyr::bind_rows()
 #re-add attributes for each individual
 iddf <- trks.thin %>% 
   group_by( id ) %>% 
@@ -269,6 +276,9 @@ unweighted_akdes$sex <- iddf$sex
 weighted_akdes$name <- iddf$territory
 weighted_akdes$id <- iddf$id
 weighted_akdes$sex <- iddf$sex
+kde_akdes$name <- iddf$territory
+kde_akdes$id <- iddf$id
+kde_akdes$sex <- iddf$sex
 
 head( weighted_akdes)
 
@@ -282,9 +292,12 @@ geom_sf( data = weighted_akdes,
 #compare against unweighted ouf model using all data from ctmm
 geom_sf( data = unweighted_akdes,
          fill = NA, col = "orange", linewidth = 1 ) +
+  #compare against unweighted ouf model using all data from ctmm
+  geom_sf( data = kde_akdes,
+           fill = NA, col = "black", linewidth = 1 ) +
   facet_wrap( ~id )
 
-## How do the two options compare?
+## How do the options compare?
 #Answer;
 #
 # For homework replot weighted and unweighted ranges for individual 3
