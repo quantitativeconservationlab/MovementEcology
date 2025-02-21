@@ -6,11 +6,8 @@
 # https://rangelands.app/products/ for 2021 and includes        #
 # % cover for shrub, perennial herbaceous, annual herbaceous    #
 # tree, litter and bare ground                                   #
-# coordinate system is WGS84 EPSG:4326, spatial resolution is 30m #
+# coordinate system is WGS84 EPSG:4326,                          #
 # We perform analyses in amt (Signer et al. 2019) and glmmTMB    #
-# following Muff et al. (2019)                                  #
-# go here: https://conservancy.umn.edu/handle/11299/204737      #
-# for detailed code used by Muff.                               #
 # Prairie Falcon data was thinned to 30minutes for 9 individuals #
 # tracked in 2021.                                               #
 ###################################################################
@@ -20,9 +17,11 @@
 install.packages( "glmmTMB" )
 # load packages relevant to this script:
 library( tidyverse ) #easy data manipulation
+# set option to see all columns and more than 10 rows
+options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt )
 library( glmmTMB ) # for analysis
-library( corrplot )
+
 #####################################################################
 ## end of package load ###############
 
@@ -31,208 +30,251 @@ library( corrplot )
 # Clean your workspace to reset your R environment. #
 rm( list = ls() )
 
-#load the thinned (30min) data for all individuals
-df_all <- read_rds( "Data/df_all" )
-#load ranges for all individuals:
-#akde_all <- read_rds( "Data/akde_all" )
-
+#load our clean data frame to assess 1st order selection
+df_sa <- read.csv( "Data/df_sa.csv" )
+#load data for 2nd order selection
+df_hr <- read.csv( "Data/df_hr.csv" )
 #import polygon of the NCA as sf spatial file:
-#NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
-
+NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
+#this one has the same CRS as our used/available points
 #######################################################################
 ######## preparing data ###############################################
-
-###############  Single individual Example ##################
-###########
-#extract data for individual of interest:
-df_one <- df_all %>% filter( id == 4 )
-head( df_one)
 #create vector of predictors taking advantage of naming commonality 
 # to automatically extract them:
-prednames <- grep('0m', colnames(df_one), value = TRUE)
-#check for correlation but also whether the values sum to one or close 
-# to. See: https://esajournals.onlinelibrary.wiley.com/doi/full/10.1002/ecy.4256
-# for reasons why that is an issue.
-corrplot::corrplot( round(cor(df_one[prednames]),1 ), method = "number" )
-#sum covariates at appropriate scale and then plot results:
-#for 30m
-hist(apply( df_one[ ,prednames[1:3] ], 1,sum ))
-#for 500m
-hist(apply( df_one[ ,prednames[4:6] ], 1,sum ))
-
-# Scale predictors 
-#create new dataframe to hold scaled predictors, while keeping 
+prednames <- grep('0m', colnames(df_sa), value = TRUE)
+# Scale predictors create new dataframes to hold scaled predictors, while keeping 
 # unscaled ones for plotting later
-df_scl <- df_one
-
+sa_scl <- df_sa
 #scale only those columns:
-df_scl[, prednames] <- apply( df_scl[,prednames], 2, scale )
+sa_scl[, prednames] <- apply( sa_scl[,prednames], 2, scale )
 #view
-head( df_scl)
-#now check for missing values
-colSums( is.na( df_scl[,prednames] ) )
-#no missing values in this instance. 
-# we also assign weights to available points to be much greater than used points
-df_scl$weight <- 1000 ^( 1 - as.integer(df_scl$case_ ) )
-#check
-head( df_scl )
-
-##### analyse data  ##########
-#We can use fit_rsf, which is just a wrapper around 
-#stats::glm with family = binomial(link = "logit").
-
-# starting with single individual:
-m1 <- df_scl %>% 
-  fit_rsf( case_ ~ 0 + annual_30m + perennial_30m +
-                          shrub_30m ) %>% 
-  summary()
-# Based on what you have learnt, what is missing from this analysis #
-# that may be biasing results?
-# Answer:
-# 
-# we rerun the same model but using glmmTMB to make sure our results 
-# are comparable
-m1.1 <- glmmTMB( case_ ~  0 + annual_30m + perennial_30m +
-                   shrub_30m,
-                 family = binomial(), data = df_scl ) 
-#view
-summary( m1.1 )
-
-# Are the results comparable?
-# Answer:
-# 
-# We now include weights in the model
-m1.w <- glmmTMB( case_ ~  0 + annual_30m + perennial_30m +
-                   shrub_30m,
-                 family = binomial(), data = df_scl, 
-                 weights = weight ) 
-#view
-summary( m1.w )
-
-# we repeat the weighted model with the larger area
-m2.w <- glmmTMB( case_ ~  0 + annual_500m + perennial_500m +
-                   shrub_500m,
-                 family = binomial(), data = df_scl, 
-                 weights = weight ) 
-#view
-summary( m2.w )
-
-# computation was fairly fast for this individual so we move on to a 
-#population-level analyses
-
-#for homework try a different individual. 
-# Interpret results here:
+head( sa_scl)
+# why do we scale predictors?
 # Answer:
 #
 
-##### end single indiv analyses ####
+#now check for missing values
+colSums( is.na( sa_scl[,prednames] ) )
+#no missing values in this instance. 
+# we also assign weights to available points to be much greater than used points
+sa_scl$weight <- 1000 ^( 1 - as.integer( sa_scl$case_ ) )
+#check
+head( sa_scl )
+
+# We repeat the process for second order selection where
+# available points were extracted within each individual's range
+#extract individual id numbers:
+idnos <- sort( unique( df_scl$territory )) 
+#duplicate dataframe
+hr_scl <- df_hr
+#scale only those columns:
+hr_scl[, prednames] <- apply( hr_scl[,prednames], 2, scale )
+#view
+head( hr_scl)
+#now check for missing values
+colSums( is.na( hr_scl[,prednames] ) )
+#no missing values in this instance. 
+# we also assign weights to available points to be much greater than used points
+hr_scl$weight <- 1000 ^( 1 - as.integer( hr_scl$case_ ) )
+#check
+head( hr_scl )
+
 #########################################################################
 #################### Population-level RSF #########################
 # We want to determine use within the NCA assuming 10 individuals #
 # is a representative sample. When would this be the case? #
+
 # When would it not be the case? #
-
-#check for correlation but also whether the values sum to one or close 
-# to. See: https://esajournals.onlinelibrary.wiley.com/doi/full/10.1002/ecy.4256
-# for reasons why that is an issue.
-corrplot::corrplot( round(cor(df_all[prednames]),1 ), method = "number" )
-#sum covariates at appropriate scale and then plot results:
-#for 30m
-hist(apply( df_all[ ,prednames[1:3] ], 1,sum ))
-#for 500m
-hist(apply( df_all[ ,prednames[4:6] ], 1,sum ))
-
-# Scale predictors 
-#create new dataframe to hold scaled predictors, while keeping 
-# unscaled ones for plotting later
-df_scl <- df_all
-#scale only those columns:
-df_scl[, prednames] <- apply( df_scl[,prednames], 2, scale )
-#view
-head( df_scl)
-#now check for missing values
-colSums( is.na( df_scl[,prednames] ) )
-#no missing values in this instance. 
-# we also assign weights to available points to be much greater than used points
-df_scl$weight <- 1000 ^( 1 - as.integer(df_scl$case_ ) )
-#check
-head( df_scl )
-
-#remember available points were extracted within each individual's 
-#range
-#extract individual id numbers:
-idnos <- sort( unique( df_scl$territory )) 
-# We focus on comparing models between our two scales:
-mp_30m <- glmmTMB( case_ ~  0 + annual_30m + perennial_30m +
-                     shrub_30m,
-                   family = binomial(), data = df_scl, 
-                weights = weight ) 
-
-summary( mp_30m )
-
-# run analysis for the coarser scale:
-mp_500m <- glmmTMB( case_ ~ 0 + annual_500m + perennial_500m +
-                      shrub_500m,
-                   family = binomial(), data = df_scl, 
-                   weights = weight ) 
-
-summary( mp_500m )
-
-#which scale has the most support? How do we choose?
 # Answer:
 #
 
-# Interpreting results ###
+# We start with our finest resolution of predictors at 30 x 30 m cells:
+msa_30m <- fit_rsf( case_ ~  1 + annual_30m + perennial_30m +
+                     shrub_30m, data = sa_scl ) 
+
+#view results
+summary( msa_30m )
+
+#as is best practice we add weights. Note that the weights cannot be 
+# added to fit_rsf() function so we shift to the more flexible
+# glmmTMB which allows weights, random effects and different distributions
+msa_30m <- glmmTMB( case_ ~  1 + annual_30m + perennial_30m +
+                      shrub_30m, 
+                    data = sa_scl, 
+        #we define binomial distribution for the response and add weights
+            family = binomial(), weights = weight ) 
+
+#view results
+summary( msa_30m )
+
+#now that we are happy with the approach we replicate for coarser scales
+msa_100m <- glmmTMB( case_ ~ 1 + annual_100m + perennial_100m +
+                      shrub_100m,
+                    family = binomial(), data = sa_scl, 
+                    weights = weight ) 
+#view results
+summary( msa_100m )
+#Did the estimates for the coefficients change at this coarser scale?
+# Answer:
+#
+# Now we look at 500m
+msa_500m <- glmmTMB( case_ ~ 1 + annual_500m + perennial_500m +
+                      shrub_500m,
+                   family = binomial(), data = sa_scl, 
+                   weights = weight ) 
+
+summary( msa_500m )
+#What about at our biggest scale?
+# Answer:
+#
+
+#which scale has the most support? We compare model fit using AIC
+anova( msa_100m, msa_30m, msa_500m)
+
+# Which scale is most supported by model selection?
+# Answer:
+#
+
+# Interpreting results of the top model ###
 # we start by exponentiating the coefficients:
-exp( glmmTMB::fixef( mp_500m )$cond )
+exp( glmmTMB::fixef( msa_100m )$cond )
 # this reflects the relative selection strength for choosing each
 # vegetation cover when the remaining vegetation covers are kept 
 # at their mean values
-# Thus prairie falcons are 1.05 times more likely to choose
+# Thus prairie falcons are 1.45 times more likely to choose
 # shrub with cover that is 1 SD higher when annual and perennial are 
 # kept at their mean
 
 # To remind ourselves what the SD for our predictor is
-apply( df_all[,prednames], 2, sd )
+apply( df_sa[,prednames], 2, sd )
 # And now the mean values for each habitat:
-apply( df_all[,prednames], 2, mean )
+apply( df_sa[,prednames], 2, mean )
 
-# So a Prarie will be 1.05 times more likely to use an area with 17 %
-# shrub than 9 % shrub when annual is 13% and perennial is 24 %
+# So a Prarie will be 1.45 times more likely to use an area with 10 %
+# shrub than 2.5 % shrub when annual is 13. 6% and perennial is 19 %
 
 # we also plot differences in distribution between used and available #
 # locations for our predictor of choice. To plot on the real scale we #
 # combine unscaled data first:
-ggplot( df_all ) +
+ggplot( df_sa ) +
   theme_bw( base_size = 15 ) +
-  geom_density( aes( x = shrub_500m, 
+  geom_density( aes( x = shrub_100m, 
                      fill = case_, group = case_ ),
-                alpha = 0.5  ) +
-  facet_wrap( ~ territory )
+                alpha = 0.5  ) #+
+  #facet_wrap( ~ territory )
 #compare number of points 
 table( df_all$territory)
 
-ggplot( df_all ) +
-  theme_bw( base_size = 15 ) +
-  geom_density( aes( x = annual_500m, 
-                     fill = case_, group = case_ ),
-                alpha = 0.5  )  +
-  facet_wrap( ~ territory )
-
-ggplot( df_all ) +
+ggplot( df_sa ) +
   theme_bw( base_size = 15 ) +
   geom_density( aes( x = perennial_500m, 
                      fill = case_, group = case_ ),
-                alpha = 0.5  )  +
-  facet_wrap( ~ territory )
+                alpha = 0.5  )  
+
+ggplot( df_sa ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = annual_500m, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  )  
 
 
-#What do these plots tell us about individual differences?
+#What do these plots tell us about how prairie falcons select habitat?
 # Is it reasonable to assume that all individuals are selecting 
 # habitat similarly?
 # Answer:
 # 
+#########
+################ 2nd order RSFs ####################
+######
+# We replicate our approach at the home-range scale#
+#start with finest scale 
+mhr_30m <- glmmTMB( case_ ~  1 + annual_30m + perennial_30m +
+                      shrub_30m, 
+                    data = hr_scl, 
+                    #we define binomial distribution for the response and add weights
+                    family = binomial(), weights = weight ) 
 
+#view results
+summary( mhr_30m )
+# we exponentiate coefficients for easier interpretation:
+exp( glmmTMB::fixef( mhr_30m )$cond )
+
+# We follow with 100 m scale:
+mhr_100m <- glmmTMB( case_ ~ 1 + annual_100m + perennial_100m +
+                       shrub_100m,
+                     family = binomial(), data = hr_scl, 
+                     weights = weight ) 
+#view results
+summary( mhr_100m )
+exp( glmmTMB::fixef( mhr_100m )$cond )
+
+# Now we look at 500m
+mhr_500m <- glmmTMB( case_ ~ 1 + annual_500m + perennial_500m +
+                       shrub_500m,
+                     family = binomial(), data = hr_scl, 
+                     weights = weight ) 
+
+summary( mhr_500m )
+exp( glmmTMB::fixef( mhr_500m )$cond )
+
+#We compare models using AIC
+anova( mhr_100m, mhr_30m, mhr_500m)
+
+# Which scale is most supported by model selection?
+# Answer:
+#
+
+# Interpret results of the top model ###
+exp( glmmTMB::fixef( mhr_500m )$cond )
+# To remind ourselves what the SD for our predictor is
+apply( df_hr[,prednames], 2, sd )
+# And now the mean values for each habitat:
+apply( df_hr[,prednames], 2, mean )
+
+#How do you interpret selection for the most used predictor?
+# Answer:
+# 
+#
+
+# we also plot differences in distribution between used and available #
+# locations for our predictor of choice. This time we look at #
+# potential differences among individual ranges vs used habitat: 
+ggplot( df_hr ) +
+  theme_bw( base_size = 15 ) +
+  geom_density( aes( x = shrub_500m, 
+                     fill = case_, group = case_ ),
+                alpha = 0.5  ) +
+    facet_wrap( ~ territory )
+
+# Are all individuals using shrub in higher proportions than what 
+# is available inside their range? 
+# Describe and contrast selection for each individual:
+# Answer: 
+# 
+#
+
+# Are their ranges filled with similar amounts
+# Describe differences here:
+# 
+# 
+#
+# Tally individuals using more shrub cover than what 
+# is available in their range:
+# Answer:
+# 
+#
+
+# For homework also add similar figures for the other
+# two vegetation types at the same scale of the top model
+# and interpret differences and similarities
+# Add code and responses here:
+#
+#
+
+# Did the interpretation of which habitats are selected by #
+# Prairie falcons differ between the 1st order and 2 order selection?
+# Answer:
+#
 
 ###########################################################
 ### Save desired results                                  #
