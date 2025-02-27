@@ -30,6 +30,8 @@ library( glmmTMB ) # for analysis
 # Clean your workspace to reset your R environment. #
 rm( list = ls() )
 
+#load workspace
+load('RSFresults.RData')
 #load our clean data frame to assess 1st order selection
 df_sa <- read.csv( "Data/df_sa.csv" )
 #load data for 2nd order selection
@@ -64,7 +66,7 @@ head( sa_scl )
 # We repeat the process for second order selection where
 # available points were extracted within each individual's range
 #extract individual id numbers:
-idnos <- sort( unique( df_scl$territory )) 
+idnos <- sort( unique( df_hr$territory )) 
 #duplicate dataframe
 hr_scl <- df_hr
 #scale only those columns:
@@ -160,8 +162,7 @@ ggplot( df_sa ) +
   theme_bw( base_size = 15 ) +
   geom_density( aes( x = shrub_100m, 
                      fill = case_, group = case_ ),
-                alpha = 0.5  ) #+
-  #facet_wrap( ~ territory )
+                alpha = 0.5  ) 
 #compare number of points 
 table( df_all$territory)
 
