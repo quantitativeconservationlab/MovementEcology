@@ -49,7 +49,7 @@ rm( list = ls() )
 
 # If this is not the first time working on this script load workspace
 # to pick up where you left off
-#load( "DataCleanRSFs.RData" )
+load( "DataCleanRSFs.RData" )
 
 #if you are starting new then load your data:
 #import polygon of the NCA as sf spatial file:
@@ -94,7 +94,7 @@ sa_pnts <- random_points( NCA_Shape, n = nrow( trks.thin )*rn,
                          type = "random", presence = trks.thin )
 
 #view
-tail( sa_pnts )
+head( sa_pnts )
 
 #For scale 2 we create random points inside each individual home range
 hr_pnts <- akde_all %>% 
@@ -164,7 +164,7 @@ hr_cover_30m <- raster::extract( x = cover_NCA, hr_trans,
                                  method = "simple"  )
 
 #check
-head( sa_cover_30m )
+head( hr_cover_30m )
 #add resolution to the column labels
 colnames(sa_cover_30m) <- colnames(hr_cover_30m) <- paste( colnames(sa_cover_30m),
                                      "30m", sep = "_" )
@@ -320,7 +320,7 @@ steps_5 <- trks.breed %>%
 #view
 head( steps_5 )
 # We can plot step lengths by:
-steps_30 %>%   
+steps_5 %>%   
   ggplot(.) +
   #geom_density( aes( x = sl_, fill = as.factor(burst_)), alpha = 0.4 ) +
   geom_histogram( aes( x = sl_ ) ) +
@@ -333,10 +333,10 @@ steps_30 %>%
 # Turning angles:
 steps_30 %>%
 #removes individual 4 so we can see better for others with less data:
-  dplyr::filter( id != 4 ) %>% 
+ # dplyr::filter( id != 4 ) %>% 
   ggplot(.) +
   geom_histogram( aes( x = ta_ ) ) +
-#  coord_polar() +
+  coord_polar() +
   ylab("Turning angle") + xlab("") + 
   theme_bw( base_size = 19 ) +
   facet_wrap( ~id) #, scales = 'free_y' )
@@ -437,7 +437,10 @@ write.csv( df_sa, "Data/df_sa.csv" )
 write.csv( cover_steps5_df, "Data/df_steps5.csv" )
 write.csv( cover_steps30_df, "Data/df_steps30.csv" )
 
-
+write_rds( df_hr, "Data/df_hr" )
+write_rds( df_sa, "Data/df_sa" )
+write_rds( cover_steps5_df, "Data/df_steps5" )
+write_rds( cover_steps30_df, "Data/df_steps30" )
 #save workspace if in progress
 save.image( 'DataCleanRSFs.RData' )
 
