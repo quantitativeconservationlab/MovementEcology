@@ -38,12 +38,6 @@ rm( list = ls() )
 #load 30m steps estimated for all individuals and habitat 
 # variables extracted for each step
 df_steps <- read.csv( "Data/df_steps30.csv" )
-# for class only we also load 5 sec resolution
-
-
-#import polygon of the NCA as sf spatial file:
-NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
-#remember it has the same CRS as our used/available points
 
 #######################################################################
 ######## preparing data ###############################################
@@ -500,7 +494,7 @@ pissfs2
 ##########################################################################
 ### Save desired results   #
 #we save the scaled dataframe so that we can use it for our random effects
-write_csv(df_scl, "Data/df_scl.csv"  )
+write.csv(df_scl, "Data/df_scl.csv"  )
 #save workspace if in progress
 save.image( 'SSF_results.RData'  )
 
