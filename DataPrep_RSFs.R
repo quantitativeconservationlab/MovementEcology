@@ -437,10 +437,6 @@ write.csv( df_sa, "Data/df_sa.csv" )
 write.csv( cover_steps5_df, "Data/df_steps5.csv" )
 write.csv( cover_steps30_df, "Data/df_steps30.csv" )
 
-write_rds( df_hr, "Data/df_hr" )
-write_rds( df_sa, "Data/df_sa" )
-write_rds( cover_steps5_df, "Data/df_steps5" )
-write_rds( cover_steps30_df, "Data/df_steps30" )
 #save workspace if in progress
 save.image( 'DataCleanRSFs.RData' )
 
