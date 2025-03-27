@@ -11,21 +11,6 @@
 # coordinate system is WGS84 EPSG:4326, spatial resolution is 30m #
 # and was extracted at two scales                                #
 # Prairie Falcon data was thinned to 30minutes for 9 individuals #
-# tracked in 2021.                                               #
-###################################################################
-##################################################################
-# Script developed by Jen Cruz to estimate SSFs and iSSFs          #
-# approach derived from Fieberg et al. 2021 and Signer et al. 2019 #
-# using code from Appendices B and C                             #
-# also vignette here:
-# https://conservancy.umn.edu/server/api/core/bitstreams/63727072-87b1-4b35-b81c-8fd31b8f1e57/content #
-# Vegetation cover  was downloaded from Rangeland Analysis Platform #
-# https://rangelands.app/products/ for 2021 and includes        #
-# % cover for shrub, perennial herbaceous, annual herbaceous    #
-# tree, litter and bare ground                                   #
-# coordinate system is WGS84 EPSG:4326, spatial resolution is 30m #
-#                                                                #
-# Prairie Falcon data was thinned to 30minutes for 9 individuals #
 # tracked in 2021 and uses NAD83 UTM zone 11N +                   #
 # which is the same as the NCA polygon                           #
 ###################################################################

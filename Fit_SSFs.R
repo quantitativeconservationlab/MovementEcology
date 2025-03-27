@@ -24,7 +24,6 @@ library( tidyverse ) #easy data manipulation
 # set option to see all columns and more than 10 rows
 options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt )
-#library( glmmTMB ) # for analysis
 library( circular ) #for plotting von mises distribution
 
 #####################################################################
@@ -192,7 +191,7 @@ coefs_df <- left_join( id_long, coefsall, by = c("id", "term" ) )
 head(coefs_df)
 
 #plot resource selection strength by vegetation cover 
-ggplot( coefs_df,aes( x = cover , y = estimate, color = sex ) ) +
+ggplot( coefs_df,aes( x = cover , y = estimate, color = id ) ) +
   theme_classic( base_size = 15 ) +
   labs( x = "Mean cover (%)", 
         y = "Resource selection strength" ) +
@@ -292,8 +291,8 @@ updated_sl_h <- update_gamma( mi$sl_,
 #view estimated parameters
 updated_sl_l;updated_sl_h
 # Are any of the parameters negative? If so then the model is ill fitted. 
-# Tav Avgar recommends to try a different step-length distribution
-# include different interractions 
+# Tal Avgar recommends to try a different step-length distribution
+# include different interactions 
 # remove non-movement steps (based on a step-length threshold )
 # resample data to coarser resolution
 
@@ -490,7 +489,6 @@ pissfs2
 # What is a posible solution to the weakness you stated above?
 # Answer:
 # 
-
 ##########################################################################
 ### Save desired results   #
 #we save the scaled dataframe so that we can use it for our random effects

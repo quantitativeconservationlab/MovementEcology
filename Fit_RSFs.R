@@ -37,7 +37,7 @@ df_sa <- read.csv( "Data/df_sa.csv" )
 #load data for 2nd order selection
 df_hr <- read.csv( "Data/df_hr.csv" )
 #import polygon of the NCA as sf spatial file:
-NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
+NCA_Shape <- sf::st_read("Data/BOPNCA_Boundary.shp")
 #this one has the same CRS as our used/available points
 #######################################################################
 ######## preparing data ###############################################
@@ -164,7 +164,7 @@ ggplot( df_sa ) +
                      fill = case_, group = case_ ),
                 alpha = 0.5  ) 
 #compare number of points 
-table( df_all$territory)
+table( df_hr$id )
 
 ggplot( df_sa ) +
   theme_bw( base_size = 15 ) +
