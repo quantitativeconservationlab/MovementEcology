@@ -93,7 +93,7 @@ NCA_Shape <- sf::st_read( paste0( datapath, "BOPNCA_Boundary.shp") )
 # with transmitters.#
 colnames( records )
 # we keep transmitter id, date and sex
-records <- records %>% dplyr::select( Telemetry.Unit.ID, Sex, 
+records <- records %>% dplyr::select( Telemetry.Unit.ID, Sex, x, y, 
                                       Date.and.Time )
 #view
 records
@@ -118,6 +118,7 @@ records <- records %>%
   mutate(territory = case_when(
     endsWith(serial, "47221") ~ "SG",
     endsWith(serial, "47775") ~ "CRW",
+    endsWith(serial, "47072") ~ "UHD",
     endsWith(serial, "47874") ~ "SDTP",
     endsWith(serial, "48120") ~ "PR_II",
     endsWith(serial, "46751") ~ "HHGS_DS",
@@ -128,6 +129,12 @@ records <- records %>%
   ))
 
 unique(records$territory)
+head(records)
+#keep version with coordinates to turn into shapefile later 
+nestcords <- records
+#remove the coordinates from records
+records <- records %>% 
+  dplyr::select( -x, -y )
 
 ###################################################################
 # Clean GPS data
@@ -230,6 +237,12 @@ crsdata <- 4326#
 # We choose zone 11:
 #note we can also use the crs of the NCA polygon: 
 crstracks <- sf::st_crs( NCA_Shape )#sp::CRS( "+proj=utm +zone=11" )
+
+#create shapefile for nest locations
+records_sf <- st_as_sf(nestcords, coords = c("x", "y"), crs =crsdata )
+#reproject to match our tracks, which were transformed to match the 
+# NCA shapefile in the cleaned tracks script
+records_trans <- sf::st_transform( records_sf, st_crs( NCA_Shape ) )
 # We are now ready to make tracks using atm package
 #We first check sample size #
 table( datadf$id, datadf$wk )
@@ -426,6 +439,11 @@ write_rds( trks.mig, "Data/trks.mig" )
 ### save locals data too
 #Answer:
 #
+#save shapefile of nest locations 
+sf::st_write( records_trans, "Data/nests.shp", 
+              driver = "ESRI Shapefile",
+              #overwrites over existing shapefile
+              delete_layer = TRUE )
 #save workspace in case we need to make changes
 save.image( "TracksWorkspace.RData" )
 
