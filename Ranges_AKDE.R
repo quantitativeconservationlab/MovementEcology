@@ -45,6 +45,9 @@ ranges <- read_rds( "Data/ranges" )
 #view import
 head( ranges )
 
+#import polygon of the NCA as sf spatial file:
+NCA_Shape <- sf::st_read( "Data/BOPNCA_Boundary.shp" )
+
 ###############################################################
 ##### Estimate ranges using AKDE continuous-time movement model:#
 ################################################################
@@ -321,8 +324,10 @@ nested.thin <- trks.thin %>%
 #calculate home range using top movement model:
 akde_all <- nested.thin %>% 
   mutate( hr_akde_all = map( data, ~hr_akde( ., 
-              model = fit_ctmm(., "ou" ),
-                levels = 0.9 ) ) )
+      model = fit_ctmm(., model = "ou", 
+#          uere = uere, ctmm( isotropic = FALSE) 
+                ),
+                levels = 0.90 ) ) )
 # 
 akde_all
 
@@ -333,21 +338,35 @@ for( i in 1:length(ids) ){
 a <- ggplot() +
   theme_bw( base_size = 15 ) +
   #extract isopleths for ouf model using thinned data from amt
-   geom_sf( data = hr_isopleths( akde_all$hr_akde_all[[i]] ),
-             col = "black", linewidth = 2 ) +
-    geom_sf( data = as.sf( akde.uw[[i]] ), fill = NA, 
+    geom_sf( data = hr_isopleths( akde_all$hr_akde_all[[i]] ),
+              col = "black", linewidth = 2 ) +
+    geom_sf( data = st_transform( as.sf( akde.uw[[i]] ), 
+                  crs = get_crs( trks.thin ) ), fill = NA, 
              col = "purple", linewidth = 1 ) +
   #add used locations from 5 sec data as a check:
-  geom_sf( data = as_sf_points( trks.breed %>% 
-                           filter( id == i ) ),
-           size = 0.5 ) +
+  # geom_sf( data = as_sf_points( trks.breed %>% 
+  #                          filter( id == i ) ),
+  #          size = 0.5 ) +
   labs( title = ids[i] ) 
 print(a)
 }
 # What is the discrepancy between the two outlines?
 # Answer:
 # 
+akde_all %>%
+  #choose one home range method at a time
+  hr_to_sf( hr_akde_all, id ) %>% 
+  #plot with ggplot
+  ggplot( . ) +
+  theme_bw( base_size = 17 ) + 
+  geom_sf( aes( fill = as.factor(id)), 
+           linewidth = 0.8, alpha = 0.6 ) +
+  geom_sf(data = NCA_Shape, inherit.aes = FALSE, fill=NA ) +
+  theme( legend.position = "none" ) +
+  #plot separate for each individual
+  facet_wrap( ~id )
 
+  
 ###########################################################
 ### Save desired results #
 #save range for your selected individual using your preferred 

@@ -20,6 +20,10 @@
 
 # Elevation metrics using elevatr: #
 # https://cran.r-project.org/web/packages/elevatr/vignettes/introduction_to_elevatr.html
+#altitude, often the ellipsoid, i.e., a geometrically
+#perfect (but simplistic) model of the sea level, as
+#documented by the World Geodetic System (WGS84 or EPSG:4326)
+                                         
 
 # we use tmap for spatial data visualization. Learn more at:
 # https://r-tmap.github.io/tmap-book/index.html #
@@ -52,7 +56,7 @@ rm( list = ls() )
 
 # If this is not the first time working on this script load workspace
 # to pick up where you left off
-#load( "DataPrep_5secSteps.RData" )
+load( "DataPrep_5secSteps.RData" )
 
 #if you are starting new then load your data:
 #import polygon of the NCA as sf spatial file:
@@ -223,7 +227,7 @@ trks.20sec <- trks.20sec %>%
 #
 table(trks.20sec$burstid)
 
-#remove steps < 3
+#remove steps < 9
 trks.20sec <- trks.20sec %>% 
   group_by( burstid ) %>% 
   dplyr::filter( n > 9 ) %>% ungroup()
@@ -267,7 +271,6 @@ steps20sec <- trks.20sec %>%
 
 head(steps20sec)
 table(steps20sec$n)
-lubridate::minute( steps20sec$t1_)
 
 a <- steps20sec %>% 
   group_by( burstid ) %>% 
@@ -305,13 +308,105 @@ ggplot( steps20sec ) +
   geom_density( aes( hrs, color = sex ) , alpha = 0.5 ) +
   facet_wrap(~territory)
 
+########
+# plot step length 
+# We can plot step lengths by:
+steps20sec %>%   
+  ggplot(.) +
+  #geom_density( aes( x = sl_, fill = as.factor(burst_)), alpha = 0.4 ) +
+  geom_histogram( aes( x = sl_ ) ) +
+  xlab("Step length" ) + 
+  #ylim( 0, 0.01 ) + xlim(0, 2000 ) +
+  theme_bw( base_size = 9 )  +
+  theme( legend.position = "none" ) +
+  facet_wrap( ~id, scales = 'free' )
+
+# Turning angles:
+steps20sec %>%
+  #removes individual 4 so we can see better for others with less data:
+#   dplyr::filter( id != 4 ) %>% 
+  ggplot(.) +
+  geom_histogram( aes( x = ta_ ) ) +
+ # coord_polar() +
+  ylab("Turning angle") + xlab("") + 
+  theme_bw( base_size = 9 ) +
+  facet_wrap( ~id, scales = 'free_y' )
+
+steps20sec %>%
+  #removes individual 4 so we can see better for others with less data:
+  #   dplyr::filter( id != 4 ) %>% 
+  ggplot(.) +
+  geom_histogram( aes( x = alt ) ) +
+  # coord_polar() +
+  ylab("Turning angle") + xlab("") + 
+  theme_bw( base_size = 9 ) +
+  facet_wrap( ~id, scales = 'free_y' )
+######## end of plotting ######
+##########################################################################
+########### ssf models do not take 0 step lengths so remove here #####
+head(steps20sec)
+
+#get step ids for 0 step length steps
+rem <-  steps20sec$rowid[ which( steps20sec$sl_ == 0) ]
+
+length(rem)
+steps20sec[steps20sec$rowid %in% rem,]
+steps20sec[is.na(steps20sec$ta_),]
+
+#remove 0 step lengths and missing turning angles
+steps20red <- steps20sec %>% 
+  dplyr::filter( !is.na(ta_) ) %>% 
+  dplyr::filter( sl_ > 0 )
+
+dim(steps20red);dim(steps20sec)
+head(steps20red)
+steps20red[ which( steps20red$burstid == "38_4" ), ]
+
+#######################################################################
+### make random steps and extract veg data           ####
+#Draw random steps for each individual
+steps_20df <- steps20red %>% amt::nest( data = -"id" ) 
+
+steps_20df <- steps_20df %>% 
+  dplyr::mutate( rnd = lapply( data, function(x){
+    amt::random_steps( x ) } ) ) 
+
+#unnnest
+steps_20df <- steps_20df %>% 
+  dplyr::select( id, rnd ) %>% 
+  unnest( cols = rnd ) 
+#view
+tail( steps_20df )
+dim( steps_20df )
+
+#now we can turn to sf object, transform CRS to CRS of cover raster #
+#extract cover at 30 m due to fine resolution of analysis
+# because we are focused on habitat selection, we choose the end 
+# of our steps when extracting habitat. 
+# We start by turning it to sf object, assigning the correct projection
+#Note that we use the second set of coordinates:
+#repeat for 5sec
+steps20_sf <- sf::st_as_sf( steps_20df, coords = c("x2_", "y2_"), 
+                           crs = st_crs(NCA_Shape) )
+steps20_trans <- sf::st_transform( steps20_sf, st_crs(cover_NCA) )
+
+cover_steps20 <- raster::extract( x = cover_NCA, steps20_trans,
+                                 method = "simple" )
+
+#check
+head( cover_steps20_df )
+cover_steps20_df <- cbind( steps_20df, cover_steps20 )
+dim(cover_steps20_df)
+
+colnames( cover_steps20_df)[26:28] <- c( "annual", "perennial", "shrub" )
 ###########################################################
 ### Save desired results #
 #save lines 20secs
 write_rds( lines20sec, "Data/lines20sec" )
-write_rds( steps20sec, "Data/steps20sec" )
+#save steps with <9 steps removed excluding 0s and NA tas
+write_rds( steps20red, "Data/steps20red" )
 #save recalculated steps at 
-
+write.csv( cover_steps20_df, "Data/df_steps20.csv" )
 #save workspace if in progress
 save.image( 'DataPrep_5secSteps.RData' )
 ############# end of script  ##################################

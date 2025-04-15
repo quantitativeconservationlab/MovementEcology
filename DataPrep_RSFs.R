@@ -288,7 +288,7 @@ hist(apply( df_hr[ ,prednames[7:9] ], 1,sum ))
 ######### step lengths and turning angles  ##################
 #########################
 
-#For scale (3) we will use both resolutions (5 sec and 30 min) #
+#For scale (3) we will use two resolutions (5 sec and 30 min) #
 # The data has already been resampled but we need to connect the points #
 # into steps, which allow us to derive step lengths and turning angles #
 # which are movement parameters that we can incorporate into iSSFs #
