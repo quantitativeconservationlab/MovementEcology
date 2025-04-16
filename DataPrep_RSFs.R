@@ -55,6 +55,9 @@ load( "DataCleanRSFs.RData" )
 #import polygon of the NCA as sf spatial file:
 NCA_Shape <- sf::st_read(  "Data/BOPNCA_Boundary.shp" )
 
+#import nest locations
+nests <- sf::st_read(  "Data/nests.shp" )
+
 #We cropped the vegetation cover raster to our study area so that #
 # the image could be shared via github, which has size restrictions #
 # Load the cropped raster here:
@@ -288,11 +291,87 @@ hist(apply( df_hr[ ,prednames[7:9] ], 1,sum ))
 ######### step lengths and turning angles  ##################
 #########################
 
-#For scale (3) we will use two resolutions (5 sec and 30 min) #
-# The data has already been resampled but we need to connect the points #
-# into steps, which allow us to derive step lengths and turning angles #
-# which are movement parameters that we can incorporate into iSSFs #
+#For scale (3) we want to concentrate on foraging/traveling and remove #
+# nest locations and territorial movements #
 
+#create reference dataframe that keeps individual information
+iddf <- trks.thin %>% 
+  group_by( id ) %>% 
+  dplyr::select( id, territory, sex ) %>% 
+  slice(1)
+
+iddf
+#create a buffer around the nest based on territory estimates 
+nest_buffer <- nests %>% 
+  dplyr::select( territory= terrtry ) %>% 
+  st_buffer(750) %>% 
+  right_join( iddf, by = "territory" )
+
+#extract territory IDs
+terids <- unique( nest_buffer$territory )
+
+#add row id
+trks.thin <- trks.thin %>% 
+  dplyr::mutate( rowid = row_number())
+
+#create a points only sf
+thin_sf <- trks.thin %>% 
+  dplyr::select( territory, rowid, x_, y_ ) %>% 
+  amt::as_sf_points()
+# calculation needs to be individual specific start with 1 indv
+#choose buffer of individual
+buf <-  nest_buffer %>% dplyr::filter( territory == "SG" )
+#choose points belonging to that individual
+bpnts <- thin_sf %>% dplyr::filter( territory == "SG" )
+#get points outside the buffer using the st_difference()
+b <- st_difference( bpnts, buf )
+#create new dataframe to store results
+forage.thin <- b
+#now loop through the rest of the individuals
+for( i in terids[2:length(terids)] ){
+  buf <-  nest_buffer %>% dplyr::filter( territory == i )
+  bpnts <- thin_sf %>% dplyr::filter( territory == i )
+  #this function keeps nonoverlapping points only
+  b <- st_difference( bpnts, buf )
+  #append updated points to original
+  forage.thin <- bind_rows(forage.thin, b )
+}
+
+#now filter our original thin dataset using rowids
+trks.forage <- trks.thin %>% 
+  dplyr::filter( rowid %in% forage.thin$rowid )
+#the burst id restarts for each individual
+# we need to create indiv specific ones
+#add counts 
+trks.forage <- trks.forage %>% 
+  mutate( burstid = paste(burst_, id, sep = "_")) %>% 
+  add_count( burstid )
+
+#check 
+head(trks.forage)
+#how many points per burst?
+table(trks.forage$n)
+#note that we have a lot of bursts with a single point
+#we remove those
+trks.forage <- trks.forage %>% 
+  group_by( burstid ) %>% 
+  dplyr::filter( n > 1 ) %>% ungroup()
+
+###put them all in the same map to check if it worked
+ggplot() +
+  theme_bw( base_size = 15 ) + 
+  theme( legend.position = "bottom" ) +
+  geom_sf( data = nest_buffer, 
+           aes( color = as.factor(id) ),
+           linewidth = 1.2 ) +
+  geom_sf( data = as_sf_points( trks.forage ), 
+           aes(color = as.factor(id)), size = 0.5 ) +
+  geom_sf(data = NCA_Shape, linewidth = 1.5,
+          inherit.aes = FALSE, fill=NA ) 
+
+# We now connect the points into steps, which allow us to derive step lengths and turning angles #
+# which are movement parameters that we can incorporate into iSSFs #
+# select the data tibble and calculate movement metrics
 # The default number of random steps drawn per individual is 10.
 # By default the random_steps() function fits a tentative #
 # gamma distribution to the observed step lengths and a tentative #
@@ -302,25 +381,14 @@ hist(apply( df_hr[ ,prednames[7:9] ], 1,sum ))
 # random steps with the starting locations associated with each observed #
 # movement step. #
 
-#what does our tibble look like?
-akde_all
-# select the data tibble and calculate movement metrics
-steps_30 <- akde_all %>% 
-      dplyr::select( id, data ) %>% 
-      unnest( cols = data ) %>% 
+# turn tracks into steps
+steps_30 <- trks.forage %>% 
       steps_by_burst( keep_cols = 'start' ) 
 #view
 head(steps_30)
-#Now repeat the process but with 5 sec data
-#what does the data look like
-head(trks.breed)
-# select the data tibble and calculate movement metrics
-steps_5 <- trks.breed %>% 
-  steps_by_burst( keep_cols = 'start') 
-#view
-head( steps_5 )
+
 # We can plot step lengths by:
-steps_5 %>%   
+steps_30 %>%   
   ggplot(.) +
   #geom_density( aes( x = sl_, fill = as.factor(burst_)), alpha = 0.4 ) +
   geom_histogram( aes( x = sl_ ) ) +
@@ -329,6 +397,8 @@ steps_5 %>%
   theme_bw( base_size = 19 )  +
   theme( legend.position = "none" ) +
   facet_wrap( ~id, scales = 'free' )
+
+#Note there are 0 step lengths we need to remove
 
 # Turning angles:
 steps_30 %>%
@@ -340,6 +410,11 @@ steps_30 %>%
   ylab("Turning angle") + xlab("") + 
   theme_bw( base_size = 19 ) +
   facet_wrap( ~id) #, scales = 'free_y' )
+
+#remove 0 step lengths and missing turning angles
+steps_30 <- steps_30 %>% 
+  dplyr::filter( !is.na(ta_) ) %>% 
+  dplyr::filter( sl_ > 0 )
 
 #Draw random steps for each individual
 steps_30df <- steps_30 %>% amt::nest( data = -"id" ) 
@@ -358,44 +433,6 @@ steps_30df <- steps_30df %>%
 #view
 head( steps_30df )
 
-
-###### Do not use 5 sec data on your own. It will take too long ####
-#Draw random steps for each individual
-steps_5df <- steps_5 %>% amt::nest( data = -"id" ) 
-
-steps_5df <- steps_5df %>% 
-  dplyr::mutate( rnd = lapply( data, function(x){
-    amt::random_steps( x ) } ) ) 
-#unnnest
-steps_5df <- steps_5df %>% 
-  dplyr::select( id, rnd ) %>% 
-  unnest( cols = rnd ) 
-#view
-tail( steps_5df )
-dim( steps_5df )
-
-#For 5 sec we need to remove the 0 step lengths
-head( steps_5)
-#get step ids for 0 step length steps
-steps_5$combid <- paste( steps_5df$id, steps_5df$burst_, steps_5df$step_id_,
-                         sep = "_" )
-
-rem <-  steps_5df$combid[ which( steps_5df$sl_ == 0) ]
-length(rem)
-#use those to filter dataset
-steps_5df <- steps_5df %>% 
-  dplyr::filter( !(combid %in% rem ) ) 
-#check
-head(steps_5df)
-remna <- unique( steps_5df$combid[is.na(steps_5df$x2_)])
-length(remna)
-dim(steps_5df)
-#use those to filter dataset
-steps_5df <- steps_5df %>% 
-  dplyr::filter( !(combid %in% remna ) ) 
-
-dim(steps_5df)
-head( steps_5df)
 #now we can turn to sf object, transform CRS to CRS of cover raster #
 #extract cover at 30 m due to fine resolution of analysis
 # because we are focused on habitat selection, we choose the end 
@@ -410,31 +447,22 @@ head(steps30_sf)
 steps30_trans <- sf::st_transform( steps30_sf, st_crs(cover_NCA) )
 #view
 head(steps30_trans )
-#repeat for 5sec
-steps5_sf <- sf::st_as_sf( steps_5df, coords = c("x2_", "y2_"), 
-                            crs = st_crs(NCA_Shape) )
-steps5_trans <- sf::st_transform( steps5_sf, st_crs(cover_NCA) )
-
 #extracting with raster
 cover_steps30 <- raster::extract( x = cover_NCA, steps30_trans,
                                     method = "simple" )
 
 head(cover_steps30)
-cover_steps5 <- raster::extract( x = cover_NCA, steps5_trans,
-                                  method = "simple" )
-
 #now combine cover values with original step dataframe
 cover_steps30_df <- cbind( steps_30df, cover_steps30 )
 #check
-head( cover_steps30_df )
-cover_steps5_df <- cbind( steps_5df, cover_steps5 )
-
+head( cover_steps30_df)
+#dim( cover_steps30_df )
+#colnames( cover_steps30_df)[24:26] <- c( "annual", "perennial", "shrub" )
 
 #############################################################################
 # Saving relevant objects and data ---------------------------------
 write.csv( df_hr, "Data/df_hr.csv" )
 write.csv( df_sa, "Data/df_sa.csv" )
-write.csv( cover_steps5_df, "Data/df_steps5.csv" )
 write.csv( cover_steps30_df, "Data/df_steps30.csv" )
 
 #save workspace if in progress
