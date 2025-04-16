@@ -276,7 +276,7 @@ b <- coef( mi )
 # Modify code accordingly:
 summary(mi)
 b_log_l <- b["log_sl_"] 
-b_log_h <- b["log_sl_"] + b["annual:log_sl_"] 
+b_log_h <- b["log_sl_"] + b["perennial:log_sl_"] 
 b_sl <-  b["sl_"] 
 # Update step length distribution to the baseline when shrubs don't interact 
 # with step length:
@@ -327,7 +327,7 @@ plot_sl <- data.frame(x = rep(NA, 100))
 hist(df_scl[ which(df_scl$id == 2),'sl_'])
 
 # x-axis is sequence of possible step lengths
-plot_sl$x <- seq(from = 0, to = 10, length.out = 100)
+plot_sl$x <- seq(from = 0, to = 2, length.out = 100)
 
 # y-axis is the probability density under the given gamma distribution
 # For the updated distribution when habitat is low
@@ -349,6 +349,7 @@ tail(plot_sl)
 # Plot
 ggplot(plot_sl, aes(x = x, y = value, color = factor(name))) +
   geom_line(size = 1) +
+  xlim(0,1) +
   xlab("Step Length (m)") +
   ylab("Probability Density") +
   scale_color_manual(name = "Distribution", 
@@ -388,13 +389,13 @@ tail(plot_ta)
 # Plot
 ggplot(plot_ta, aes(x = x, y = value, color = factor(name))) +
   geom_line(size = 1) +
-  coord_cartesian(ylim = c(0, 0.25)) +
+  coord_cartesian(ylim = c(0, 0.75)) +
   xlab("Relative Turn Angle (radians)") +
   ylab("Probability Density") +
   scale_x_continuous(breaks = c(-pi, -pi/2, 0, pi/2, pi),
                      labels = c(expression(-pi, -pi/2, 0, pi/2, pi))) +
   scale_color_manual(name = "Distribution", 
-                     breaks = c("tentative", "updated"),
+                     breaks = c("updated_l", "updated_h"),
                      values = c("blue", "orange")) +
   theme_bw()
 
