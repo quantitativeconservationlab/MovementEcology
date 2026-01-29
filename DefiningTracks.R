@@ -4,13 +4,12 @@
 # We rely heavily on amt getting started vignette here:       #
 # https://cran.r-project.org/web/packages/amt/vignettes/p1_getting_started.html#
 #                                                               #
-# Data are Prairie Falcon locations collected during Spring/Summer #
-# of 2021 at Morley Nelson Birds of Prey NCA.                      #
+# Data are Prairie Falcon locations collected during 2021 at #
+# Morley Nelson Birds of Prey NCA.                      #
 # Data were collected for multiple individuals and at #
 # different frequencies including 2 sec intervals when the individuals#
-# were moving (every 2-3 days), and 30min fixes otherwise to define #
-# breeding season range. # Frequency shifted to hourly once #
-# individuals left their breeding grounds. #
+# were moving (every 2-3 days), and 30min fixes otherwise.      #
+# Frequency shifted to hourly once individuals left their breeding grounds. #
 #################################################################
 
 ################## Prep. workspace ###############################
@@ -82,7 +81,6 @@ records <- read.csv( file = paste0( datapath,"survey_0.csv" ),
 head( records ); dim( records )
 
 #import polygon of the NCA as sf spatial file:
-#NCA_Shape <- sf::st_read("Z:/Common/QCLData/Habitat/NCA/GIS_NCA_IDARNGpgsSampling/BOPNCA_Boundary.shp")
 NCA_Shape <- sf::st_read( paste0( datapath, "BOPNCA_Boundary.shp") )
 ##############
 
@@ -146,7 +144,7 @@ records <- records %>%
 
 hist( dataraw$vdop, breaks = 50 )
 hist( dataraw$hdop, breaks = 50 )
-hist( dataraw$time_to_fix )
+hist( dataraw$time_to_fix, main = "Time to fix" )
 
 # Remove 2D fixes and fixes where HDOP or VDOP ≥10 following #
 # D’eon and Delparte (2005).#
@@ -175,6 +173,7 @@ dim( dataraw ) - dim( datadf )
 # What % of data did we loose?
 # Answer:
 # 
+
 # We also need to set a time column containing date and time information #
 # in POSIX format (as required by amt)#
 # We rely on lubridate for this. If you haven't used lubridate before #
@@ -215,7 +214,10 @@ datadf <- datadf %>%
 #view
 head( datadf ); dim( datadf )
 # serial IDs are cumbersome so we create a new individual ID column:
-datadf$id <- group_indices( datadf, serial )
+datadf <- datadf %>% 
+  group_by( serial ) %>% 
+  mutate( id = cur_group_id()) %>% 
+  ungroup()
 
 ##################################################################
 ### Define coordinate system and projection for the data ######
@@ -234,47 +236,68 @@ crsdata <- 4326#
 # We also want to transform the lat longs to easting and northings #
 # using UTM. For this we need to know what zone we are in. Go: #
 # http://www.dmap.co.uk/utmworld.htm
-# We choose zone 11:
-#note we can also use the crs of the NCA polygon: 
-crstracks <- sf::st_crs( NCA_Shape )#sp::CRS( "+proj=utm +zone=11" )
+# We are in zone 11.
 
-#create shapefile for nest locations
-records_sf <- st_as_sf(nestcords, coords = c("x", "y"), crs =crsdata )
-#reproject to match our tracks, which were transformed to match the 
-# NCA shapefile in the cleaned tracks script
+# Alternatively we can crs of the polygon of our study area, which is already 
+# in eastings and northings. check that is the case for your own data
+sf::st_crs( NCA_Shape )
+#extract crs value for the study area (in easting northings)
+crstracks <- sf::st_crs( NCA_Shape )
+
+#create shapefile for nest locations which we will use in later analysis
+records_sf <- st_as_sf( nestcords, coords = c("x", "y"), crs =crsdata )
+# Note that here we HAVE to give it the crs that it was collected in #
+# in this case the wgs84 in lat longs
+
+# Reproject using the crs of the NCA shapefile :
 records_trans <- sf::st_transform( records_sf, st_crs( NCA_Shape ) )
-# We are now ready to make tracks using atm package
-#We first check sample size #
+
+######################################################################
+######## Visual checks of raw locations ################################
+#######################################################################
+
+#Check sample size #
 table( datadf$id, datadf$wk )
 # How many individuals have we dropped so far?
-# 
-# We can also get an idea of the data collection for each individual
+# ANSWER:
+#
+
+# Not all transmitters work according to our expectations.
+# We can get an idea of the data collected for each individual
 # by plotting histograms
+
 #sampling duration
 ggplot( datadf, aes( x = jday, group = id ) ) +
   theme_classic( base_size = 15 ) +
   geom_histogram( ) +
   facet_wrap( ~ id )
-#speeds travelled
+
+
+# What do these histograms tell you about the nature of the data #
+# Sample size, intensity for different individuals? #
+# ANSWER:
+#
+#
+
+#speeds traveled
 ggplot( datadf, aes( x = speed, group = id ) ) +
   theme_classic( base_size = 15 ) +
   geom_histogram( ) +
   facet_wrap( ~ id )
 
-# What do the histograms tell you about the nature of the data #
-# Sample size, intensity for different individuals? #
-# Answer:
-#
 #Why is the first bar on the speed histograms so tall?
-#Answer:
+#ANSWER:
 #
 # do we need to remove data based on these?
-#Answer:
+#ANSWER:
 #
+
+################
 #######################################################################
 ###### Creating tracks, calculating step lengths and turning angles ###
 ####              for all individuals at the same time:           #####
 ########################################################################
+
 #amt requires us to turn data into tracks for further analyses.
 trks <- datadf %>% 
   #make track. Note you can add additional columns to it
@@ -283,16 +306,19 @@ trks <- datadf %>%
     id = id, territory = territory,
     sex = Sex, mth = mth, wk = wk,
     jday = jday, speed = speed, alt = alt, 
-    #assign correct crs
+    #assign correct crs in lat longs (WGS84)
     crs = crsdata )
+# remember you need to give it the original CRS first!!!!!
+#check
+head(trks)
 
-# Reproject to UTM to convert lat lon to easting northing:
-#trks <- amt::transform_coords( trks, crstracks )
+# Reproject to UTM to convert lat lon to easting northing
+#because it is an amt object now, we use an amt functions:
 trks <- amt::transform_coords( trks, crs_to = crstracks )
-#Turn into a tibble list by grouping and nest by individual IDs:
-trks <- trks %>%  amt::nest( data = -"id" )
-#view
-trks
+#note that we are still using the study area crs 
+
+#check
+head(trks)
 
 # Remember we have multiple types of data including detailed data for flights #
 # 3 times a week, 30min fixes during the day, then hourly fixes during #
@@ -317,32 +343,42 @@ for( i in 1:dim(trks)[1]){
 # Here we rely on NCA polygon, removing records that exist East of the #
 # NCA. We can extra the extent of a polygon:
 sf::st_bbox( NCA_Shape )
+
 #Then use the Eastern-most coordinate to filter out data 
 xmax <- as.numeric(st_bbox(NCA_Shape)$xmax) #627081.5
 #Then use the Northern-most coordinate to filter out data 
 ymax <- as.numeric(st_bbox(NCA_Shape)$ymax) + 10000 #627081.5
 
+#Turn into a tibble list by grouping and nest by individual IDs so that 
+# we can use map function for faster processing
+
+trks.tib <- trks %>%  amt::nest( data = -"id" )
+#view
+trks; trks.tib
+
 #subset those tracks less than as breeding and those > as migrating:
-trks <- trks %>% mutate(
+trks.tib <- trks.tib %>% mutate(
   breeding = map( data, ~ filter(., x_ < xmax ) ) )
 
-trks <- trks %>% mutate(
+trks.tib <- trks.tib %>% mutate(
   breeding = map( breeding, ~ filter(., y_ < ymax ) ) )
 
 #some individuals come back to overwinter at the NCA and so #
 # we need to remove those records as well #
 # we do so using month column to remove anything after June
-trks <- trks %>% mutate(
+trks.tib <- trks.tib %>% mutate(
   breeding = map( breeding, ~filter(., mth < 7 ) ),
   migrating = map( data, ~filter(., mth > 6 ) ),
   locals = map( migrating, ~ filter(., x_ < xmax ) ),
   locals = map(locals, ~ filter(., y_ < ymax ) ) 
 )
 
+#check 
+trks.tib
 # We focus on breeding season data for visualization as that is the 
 # one of interest in latest weeks. 
-for( i in 1:dim(trks)[1]){
-  a <- as_sf_points( trks$breeding[[i]] ) %>% 
+for( i in 1:dim(trks.tib)[1]){
+  a <- as_sf_points( trks.tib$breeding[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
     labs( title = paste0('individual =', trks$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
@@ -352,8 +388,10 @@ for( i in 1:dim(trks)[1]){
 
 # For homework plot the locals instead.#what do you note? are they all overwintering
 # at the NCA? which ones are? List individuals here:
-#Answer:
+#ANSWER:
 #
+
+
 # Despite us setting a sampling (fix) rate for our transmitters, bad weather, 
 # thick canopy etc can cause fix attempts to fail. Our fix rate may therefore 
 # not be exactly what we set it for. If we want measures of distance (step lengths),
@@ -361,22 +399,22 @@ for( i in 1:dim(trks)[1]){
 # time, we need fix rates to be equally spaced. The first step to do this is to
 # estimate sampling rate for each individual by looping through 
 # data using purr function map
-sumtrks <- trks %>%  summarize( 
+sumtrks <- trks.tib %>%  summarise( 
   map( breeding, amt::summarize_sampling_rate ) )
 #view
 sumtrks[[1]]
 # This plots the actual sampling rate for each individual separately. #
 # Look at the median. What is it?  (units reported on last column)
-# Answer:
+# ANSWER:
 #
+
 # What about min and max? Those values give you an idea of the breaks in 
 # your data. The median allows you to work out the most common fix rate. 
 # Probably the one of interest for a lot of questions. #
 # we will choose two sampling rates 30min (median value) for Range analysis #
 # and RRFs and 5sec for movement questions, SSFs, iSSFs. 
 
-
-trks.all <- trks %>% mutate(
+trks.all <- trks.tib %>% mutate(
   # Here we take breeding season data and resample at 5 seconds, allowing +- 4sec:
   highres = map( breeding, function(x) x %>%  
           track_resample( rate = seconds(5), 
@@ -398,17 +436,33 @@ tail( trks.breed )
 
 #you can also plot them once you unnested the resampled points for fine tune cleaning 
 trks.breed %>% 
-  #dplyr::filter( jday < 178 ) %>% 
-as_sf_points( . ) %>% 
+  #dplyr::filter( jday < ? ) %>% 
+as_sf_points( . )  %>% 
   #plot with ggplot
   ggplot( . ) +
-  theme_bw( base_size = 17 ) + 
+  theme_bw( base_size = 10 ) + 
   geom_sf( aes( colour = as.factor(jday) ) ) +
+  geom_sf( data = NCA_Shape, fill = NA  ) +
   #plot separate for each individual
   facet_wrap( ~id )
 
-#we remove remaining migrating tracks
-trks.breed <- trks.breed %>% dplyr::filter( jday < 178 )
+#remove remaining migrating tracks for those individuals that have them
+trks.breed <- trks.breed %>% 
+  dplyr::filter( jday < 178 )
+#check
+tail( trks.breed )
+
+#replot to check that it worked
+trks.breed %>% 
+  as_sf_points( . )  %>% 
+  #plot with ggplot
+  ggplot( . ) +
+  theme_bw( base_size = 10 ) + 
+  geom_sf( aes( colour = as.factor(jday) ) ) +
+  geom_sf( data = NCA_Shape, fill = NA  ) +
+  #plot separate for each individual
+  facet_wrap( ~id )
+
 
 # Now for 30min intervals
 trks.thin <- trks.all %>% dplyr::select( id, red ) %>% 
@@ -420,12 +474,18 @@ trks.mig <- trks.all %>% dplyr::select( id, migrating ) %>%
   unnest( cols = migrating ) 
 head( trks.mig )
 
-### repeat here creating the unnesting for locals!
-## remove all individuals that did not overwinter at NCA using #
-# the plot to determine which ones to keep.
-#Answer:
-#
+#overwintering birds
+trks.locals <- trks.all %>% dplyr::select( id, locals ) %>% 
+  unnest( cols = locals ) 
+head( trks.locals)
 
+### repeat process of plotting tracks for overwintering birds!
+## do you need to remove additional days? Do so if so. 
+#Answer:
+#Plot locals here:
+#
+## Save updated version of locals here:
+#
 #############################################################################
 # Saving relevant objects and data ---------------------------------
 #save breeding season data (not thinned)
@@ -437,13 +497,14 @@ write_rds( trks.thin, "Data/trks.thin" )
 #save migration data (unthinned)
 write_rds( trks.mig, "Data/trks.mig" )
 ### save locals data too
-#Answer:
-#
+write_rds( trks.locals, "Data/trks.locals" )
+
 #save shapefile of nest locations 
 sf::st_write( records_trans, "Data/nests.shp", 
               driver = "ESRI Shapefile",
               #overwrites over existing shapefile
               delete_layer = TRUE )
+
 #save workspace in case we need to make changes
 save.image( "TracksWorkspace.RData" )
 
