@@ -195,7 +195,7 @@ all( complete.cases( datadf ) )
 
 # we also add month, week, and day of year information using lubridate
 datadf <- datadf %>% 
-  mutate( mth = lubridate::month(date),
+  dplyr::mutate( mth = lubridate::month(date),
           wk = lubridate::week(date),
           jday = lubridate::yday(date) )
 
@@ -320,14 +320,21 @@ trks <- amt::transform_coords( trks, crs_to = crstracks )
 #check
 head(trks)
 
+#Turn into a tibble list by grouping and nest by individual IDs so that 
+# we can use map function for faster processing
+
+trks.tib <- trks %>%  amt::nest( data = -"id" )
+#view
+trks; trks.tib
+
 # Remember we have multiple types of data including detailed data for flights #
 # 3 times a week, 30min fixes during the day, then hourly fixes during #
 # migration. We start by focusing on data during breeding season. #
 # That means we need to remove migration locations.
 # How do we know when individuals started migrating North?
 # We plot overall paths for each individual:
-for( i in 1:dim(trks)[1]){
-  a <- as_sf_points( trks$data[[i]] ) %>% 
+for( i in 1:dim(trks.tib)[1]){
+  a <- as_sf_points( trks.tib$data[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
     labs( title = paste0('individual =', trks$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
@@ -349,12 +356,6 @@ xmax <- as.numeric(st_bbox(NCA_Shape)$xmax) #627081.5
 #Then use the Northern-most coordinate to filter out data 
 ymax <- as.numeric(st_bbox(NCA_Shape)$ymax) + 10000 #627081.5
 
-#Turn into a tibble list by grouping and nest by individual IDs so that 
-# we can use map function for faster processing
-
-trks.tib <- trks %>%  amt::nest( data = -"id" )
-#view
-trks; trks.tib
 
 #subset those tracks less than as breeding and those > as migrating:
 trks.tib <- trks.tib %>% mutate(
