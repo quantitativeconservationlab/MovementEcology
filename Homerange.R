@@ -13,7 +13,7 @@ library( tidyverse ) #easy data manipulation
 # set option to see all columns and more than 10 rows
 options( dplyr.width = Inf, dplyr.print_min = 100 )
 library( amt )
-#library( sp )
+#library( sf )
 
 #####################################################################
 ## end of package load ###############
@@ -62,9 +62,8 @@ for( i in 1:dim(trks.thin)[1] ){
     #select( x_ )
     select( y_ )
     #select(speed )
-    #select( alt )
   #calculate autocorrelation function:
-  acf( x, lag.max = 1000,
+  acf( x, lag.max = 40,
        main = paste0( "individual = ", i ) )
   #Note you can modify the lag.max according to your data 
 }
@@ -92,26 +91,30 @@ for( i in 1:dim(trks.breed)[1] ){
 #Answer:
 # 
 
-# we keep the 30min interval and can now 
-# start by calculating MCP and KDE for each individual:
+# How much would you have to thin your data to remove autocorrelation?
+# Answer:
+#
+
+# we keep the 30min interval (as we will make use of autocorrelation)
+# next week and calculate MCP and KDE for each individual:
 ranges <- trks.thin %>% 
   #we group tibbles for each individual:
   nest( data = -"id" ) %>% 
   #then add estimates from two home range measures:
   mutate(
     #Minimum Convex Polygon
-    hr_mcp = map(data, ~ hr_mcp(., levels = c(0.5, 0.9)) ),
+    hr_mcp = map(data, ~ hr_mcp(., levels = c(0.5, 0.95)) ),
     #Kernel density estimator
-    hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.9)) ),
+    hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.95)) ),
     #also calculate the sample size for each individual
     n = map_int( data, nrow )
   )  
 #view
 ranges
 
-#plot MCPs:
+#plot KDEs:
 ranges %>%
-  hr_to_sf( hr_mcp, id, n ) %>% 
+  hr_to_sf( hr_kde, id, n ) %>% 
   ggplot( . ) +
   theme_bw( base_size = 17 ) + 
   geom_sf( aes(color= as.factor(id) ) )  +
@@ -123,12 +126,12 @@ ranges %>%
 #save the MCP only so that we can plot it against the KDE:
 mcps <- ranges %>%
   hr_to_sf( hr_mcp, id, n )
+
 #plot both methods:
 #select tibble 
 ranges %>%
   #choose one home range method at a time
   hr_to_sf( hr_kde, id, n ) %>% 
-  #hr_to_sf( hr_mcp, id, n ) %>% 
   #plot with ggplot
   ggplot( . ) +
   theme_bw( base_size = 17 ) + 
@@ -159,11 +162,11 @@ ranges %>%
 hr_wk <- trks.thin %>%  
       # we nest by id and week
       nest( data = -c(id, wk, sex ) ) %>%
-      mutate( n = map_int(data, nrow) ) %>% 
+      mutate( n = map_int(data, nrow ) ) %>% 
   #remove weeks without enough points
   filter( n > 15 ) %>% 
   mutate( #now recalculate weekly home range
-  hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.9)) ))
+  hr_kde = map(data, ~ hr_kde(., levels = c(0.5, 0.95)) ))
 
 #plot weekly ranges for each individual at a time so that
 # we can focus on within-individual differences
@@ -240,7 +243,7 @@ head(hr_area)
 #plot 
 hr_area %>% 
   #choose desired level 
-  filter( level  == 0.9 ) %>% 
+  filter( level  == 0.95 ) %>% 
   ggplot( aes(x = as.character(id), y = area_km, 
               color = sex ) ) + 
   geom_point(size = 4) +
@@ -253,7 +256,7 @@ hr_area %>%
 # Replot this with 50% area size.
 # Add Code:
 #
-# How do individuals and sexes differ between 90 and 50% 
+# How do individuals and sexes differ between 95 and 50% 
 # breeding ranges? # what could you tentatively say about 
 # their ecology based on these results # 
 # Answer:
