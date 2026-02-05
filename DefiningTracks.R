@@ -336,7 +336,7 @@ trks; trks.tib
 for( i in 1:dim(trks.tib)[1]){
   a <- as_sf_points( trks.tib$data[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
+    labs( title = paste0('individual =', trks.tib$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
     geom_sf() 
   print(a)
