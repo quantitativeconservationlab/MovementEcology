@@ -264,7 +264,7 @@ ggplot() +
 geom_sf( data = ouf_akdes,
          fill = NA, col = "purple", linewidth = 2 ) +
 #compare against  ou model using all data from ctmm
-geom_sf( data = ouf_akdes,
+geom_sf( data = ou_akdes,
          fill = NA, col = "orange", linewidth = 1 ) +
   #compare against kde model using all data from ctmm
   geom_sf( data = kde_akdes,
@@ -296,7 +296,7 @@ akde_all <- nested.thin %>%
       model = fit_ctmm(., model = "ou", 
 #          uere = uere, ctmm( isotropic = FALSE) 
                 ),
-                levels = 0.95 ) ) )
+                levels = c(0.95) ) ) )
 # 
 akde_all
 
