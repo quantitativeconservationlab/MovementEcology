@@ -78,7 +78,7 @@ ids <- sort(unique( trks.thin$id ))
 #create objects to store results
 svf.t <- list()
 ctmm.t <- list()
-xlimz <- c(0,36 %#% "hour" )
+xlimz <- c(0,8 %#% "hour" )
 #set plot parameters
 par( mfrow = c(3,3))
 #loop through all individuals 
@@ -92,9 +92,10 @@ for( i in ids ){
   #Calculate empirical variograms:
   svf.t[[i]] <- variogram( ctmm.t[[i]] )
   #plot variograms for each individual
-  plot( svf.t[[i]], xlim =  xlimz )
+  plot( svf.t[[i]] ,xlim =  xlimz 
+        )
 }
-# How are they unique for each individual?
+# How do variograms vary among individuals
 # Answer:
 #
 
@@ -143,23 +144,20 @@ for( i in 1:length(ids) ){
   print(i)
   # add basic IID model to model list
   m.best[[i]]$"IID isotropic" <- ctmm.fit( ctmm.t[[i]],
-                                     ctmm(isotropic = TRUE) )
-  #extract model name for top model
-  an <- rownames(summary( m.best[[i]][1]))
-  #plot best model
-  ctmm::plot( svf.t[[i]], m.best[[i]][[1]], 
-              xlim =  xlimz ,
-        main = paste( ids[i], an ) )#best model
-  #plot two most common models
-  a2 <- rownames(summary( m.best[[i]][2]))
-  #plot best model
-  ctmm::plot( svf.t[[i]], m.best[[i]][[2]], 
-              xlim =  xlimz ,
-              main = paste( ids[i], a2 ) )#best model
-  # #plot against traditional KDE
-  # ctmm::plot( svf.t[[i]], m.best[[i]]$"IID isotropic", 
-  #             xlim = xlimz,
-  #       main = paste( ids[i], "IID isotropic" ) ) 
+                                           ctmm(isotropic = TRUE) )
+  #get row id for IDD model
+  iidid <- length(rownames(summary( m.best[[i]])))
+  #extract model name for top two models:
+  an <- strsplit( rownames(summary( m.best[[i]][1])), " ")[[1]][1]
+  ab <- strsplit( rownames(summary( m.best[[i]][2])), " ")[[1]][1]
+  #plot top model, second best, and IID models
+  ctmm::plot( svf.t[[i]], m.best[[i]][c(1,2,iidid)],
+              col.CTMM=c("orange","blue","red"),
+              #define a short lag to zoom in on differences
+              xlim = c(0,6 %#% "hour" ),
+        # label with individual id and color for top two models
+        main = paste( ids[i], "orange =", an,
+                      "blue =", ab ) )
 }  
 
 # Comment on the differences in the variance model assumptions
