@@ -23,7 +23,7 @@
 # Note that this code takes a lot of time to run #
 #For homework choose one section that you need to adapt to your #
 # class project, or for your own research, or the one that you #
-# are most interested in learning # Submit modified code #
+# are most interested in learning. Submit modified code #
 # detailing what you choose and why. Do not include other sections#
 #################################################################
 
@@ -65,9 +65,6 @@ cover_NCA <- raster::stack( "Data/RAPcover2021_NCA.img" )
 
 #import akde ranges you created which includes  thinned (30min) data
 akde_all <- read_rds( "Data/akde_all" )
-
-#load high resolution data for comparison
-trks.breed <- read_rds( "Data/trks.breed" )
 
 #########
 ###################################################################
