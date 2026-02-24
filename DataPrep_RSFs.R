@@ -139,7 +139,7 @@ hr_trans <- sf::st_transform( hr_sf, st_crs( cover_NCA ) )
 #view raster attributes
 cover_NCA
 #note that names of vegetation layers did not save so we add them:
-names(cover_NCA) <- c( "annual", "perennial", "shrub" )
+names(cover_NCA) <- c(  "perennial","annual", "shrub" )
 
 #we visualize vegetation rasters
 #tm_shape let's you select the object you want to plot
@@ -202,6 +202,7 @@ head( df_sa )
 df_hr <- cbind( hr_cover_100m, hr_cover_500m ) 
 #view
 head( df_hr )
+
 # we merge with our gps points from ORIGINAL crs (not the cover raster #
 # since we already extracted cover values) 
 head( hr_pnts)
@@ -258,9 +259,9 @@ sort( car::vif( modall ), decreasing = T )
 # for reasons why that is an issue.
 #sum covariates at appropriate scale and then plot results:
 #for 100m
-hist(apply( df_hr[ ,prednames[4:6] ], 1,sum ))
+hist(apply( df_hr[ ,prednames[1:3] ], 1,sum ))
 #for 500m
-hist(apply( df_hr[ ,prednames[7:9] ], 1,sum ))
+hist(apply( df_hr[ ,prednames[4:6] ], 1,sum ))
 
 
 #############################################################
@@ -340,23 +341,32 @@ head( forage.thin)
 trks.forage <- trks.thin %>% 
   dplyr::filter( rowid %in% forage.thin$rowid )
 
-# to finish note that the burst id restarts for each individual
-# we need to create indiv specific ones:
+# Note that the burst id restarts for each individual
+# we need to create individual-specific burst since we are
+# eventually going to analyze all individuals combined:
 trks.forage <- trks.forage %>% 
   mutate( burstid = paste(burst_, id, sep = "_")) %>% 
   add_count( burstid )
 
 #check 
 head(trks.forage)
-#how many points per burst?
+#Last check how many points per burst?
 table(trks.forage$n)
-#note that we have a lot of bursts with a single point
-#we remove those
-trks.forage <- trks.forage %>% 
-  group_by( burstid ) %>% 
-  dplyr::filter( n > 1 ) %>% ungroup()
+#Remember burst are groups of points that have the desired fix rate 
+# (in this case 30minutes) #
+# burst ids group them together so that when we calculate movement 
+#parameters for adjacent points that collected at the desired fix rate
+# so step lengths between points that belong to a burst only.
 
-###put them all in the same map to check if it worked
+# We have a lot of bursts with a single point that won't allow us to 
+# calculate step lenths (need 2 points) or turning angles (need 3 points)
+# Thus we remove them:
+trks.forage <- trks.forage %>%
+  group_by( burstid ) %>%
+#filter to keep only bursts with more than 1 point:
+    dplyr::filter( n > 1 ) %>% ungroup()
+
+###put them all in the same map to check cleaning steps worked:
 ggplot() +
   theme_bw( base_size = 15 ) + 
   theme( legend.position = "bottom" ) +
@@ -455,14 +465,15 @@ head(cover_steps30)
 cover_steps30_df <- cbind( steps_30df, cover_steps30 )
 #check
 head( cover_steps30_df)
-#dim( cover_steps30_df )
-#colnames( cover_steps30_df)[24:26] <- c( "annual", "perennial", "shrub" )
+dim( cover_steps30_df )
 
 #############################################################################
 # Saving relevant objects and data ---------------------------------
+#study area
 write.csv( df_hr, "Data/df_hr.csv" )
 write.csv( df_sa, "Data/df_sa.csv" )
-write.csv( cover_steps30_df, "Data/df_steps30.csv" )
+write_rds( cover_steps30_df, "Data/df_steps30" )
+
 
 #save workspace if in progress
 save.image( 'DataCleanRSFs.RData' )
