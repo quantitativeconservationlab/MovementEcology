@@ -154,28 +154,15 @@ tm_shape( cover_NCA ) +
 #################################################################
 # Extract cover around each point. #
 #We have to think about scale here again #
-# We choose 3 scales 
+# We choose 2 scales 
 ##########
-#the finest resolution is 30 x 30 m cells extracting value at the cell
-sa_cover_30m <- raster::extract( x = cover_NCA, sa_trans,
-                                 method = "simple" )
-#repeat for home range selection:
-hr_cover_30m <- raster::extract( x = cover_NCA, hr_trans,
-                                 method = "simple"  )
-
-#check
-head( hr_cover_30m )
-#add resolution to the column labels
-colnames(sa_cover_30m) <- colnames(hr_cover_30m) <- paste( colnames(sa_cover_30m),
-                                     "30m", sep = "_" )
-#check
-head( sa_cover_30m );head( hr_cover_30m)
-
-#Now scale to 100m by using a buffer of 50m radius
+#We start with 100m diameter surrounding each point 
+#by using a buffer of 50m radius
+#study area points
 sa_cover_100m <- raster::extract( x = cover_NCA, sa_trans,
                                   method = "simple", buffer = 50,
                                   fun  = mean, na.rm = TRUE )
-#repeat for home range selection:
+#repeat for home range points:
 hr_cover_100m <- raster::extract( x = cover_NCA, hr_trans,
                                   method = "simple", buffer = 50,
                                   fun  = mean, na.rm = TRUE )
@@ -197,12 +184,11 @@ colnames(sa_cover_500m) <- colnames(hr_cover_500m) <- paste( colnames(sa_cover_5
                                       "500m", sep = "_" )
 
 # What proportion of our data are missing values
-sum( is.na( hr_cover_30m ))/ length( hr_cover_30m )
 sum( is.na( hr_cover_100m ))/ length( hr_cover_100m )
 sum( is.na( hr_cover_500m ))/ length( hr_cover_500m )
 
 # for 1st-order selection (study area) we combine our 3 scales
-df_sa <- cbind( sa_cover_30m, sa_cover_100m, sa_cover_500m ) 
+df_sa <- cbind( sa_cover_100m, sa_cover_500m ) 
 #view
 head(df_sa)
 # we merge with our gps points from ORIGINAL crs (not the cover raster #
@@ -213,7 +199,7 @@ df_sa <- cbind( sa_pnts, df_sa )
 head( df_sa )
 
 # for 2st-order selection (home range) we combine our 3 scales
-df_hr <- cbind( hr_cover_30m, hr_cover_100m, hr_cover_500m ) 
+df_hr <- cbind( hr_cover_100m, hr_cover_500m ) 
 #view
 head( df_hr )
 # we merge with our gps points from ORIGINAL crs (not the cover raster #
@@ -249,11 +235,6 @@ y <- rbinom( dim(df_hr)[1], 1, 0.4 )
 
 prednames
 #fit model
-mod30 <- glm( y ~ annual_30m + perennial_30m + shrub_30m, 
-              data = cbind(y,df_hr), family = binomial )
-#calculate VIF
-sort( car::vif(mod30), decreasing = T ) 
-#fit model
 mod100 <- glm( y ~ annual_100m + perennial_100m + shrub_100m, 
                data = df_hr, family = binomial)
 #calculate VIF
@@ -265,7 +246,7 @@ mod500 <- glm( y ~ annual_500m + perennial_500m + shrub_500m,
 sort( car::vif(mod500), decreasing = T ) 
 
 #what if we included all scales into the same model
-modall <-  glm( y ~ annual_30m + perennial_30m + shrub_30m + 
+modall <-  glm( y ~ 
                   annual_100m + perennial_100m + shrub_100m +
                   annual_500m + perennial_500m + shrub_500m, 
                 data = df_hr, family = binomial)
@@ -276,8 +257,6 @@ sort( car::vif( modall ), decreasing = T )
 # to. See: https://esajournals.onlinelibrary.wiley.com/doi/full/10.1002/ecy.4256
 # for reasons why that is an issue.
 #sum covariates at appropriate scale and then plot results:
-#for 30m
-hist(apply( df_hr[ ,prednames[1:3] ], 1,sum ))
 #for 100m
 hist(apply( df_hr[ ,prednames[4:6] ], 1,sum ))
 #for 500m
@@ -288,17 +267,25 @@ hist(apply( df_hr[ ,prednames[7:9] ], 1,sum ))
 ######### step lengths and turning angles  ##################
 #########################
 
-#For scale (3) we want to concentrate on foraging/traveling and remove #
-# nest locations and territorial movements #
+#For scale (3) we want to concentrate on what habitats our individual
+# prairie falcon are selecting while they are foraging and traveling, 
+# not when they are nesting. Remember they nest on clifts and defend their 
+# nesting territories. The movements near the nest are thus unlikely to #
+# be driven by the habitats below (but instead by courtship and territoriality)
+# Thus we remove points that are near nest locations #
 
-#create reference dataframe that keeps individual information
+#Start by create reference dataframe that keeps individual information
 iddf <- trks.thin %>% 
   group_by( id ) %>% 
   dplyr::select( id, territory, sex ) %>% 
   slice(1)
 
 iddf
-#create a buffer around the nest based on territory estimates 
+#create a buffer around the nest locations based on knowledge of their 
+# nesting territory size. Here we chose this size from our observations 
+#  in the field on the territory area that they defended. 
+# to remove points inside nesting territory we need to create two objects
+# (1) an sf multipolygon object that defines the nesting territory:
 nest_buffer <- nests %>% 
   dplyr::select( territory= terrtry ) %>% 
   st_buffer(750) %>% 
@@ -311,35 +298,50 @@ terids <- unique( nest_buffer$territory )
 trks.thin <- trks.thin %>% 
   dplyr::mutate( rowid = row_number())
 
-#create a points only sf
+#(2) an sf points object that labels each point and contains a label for territory ID
 thin_sf <- trks.thin %>% 
   dplyr::select( territory, rowid, x_, y_ ) %>% 
   amt::as_sf_points()
-# calculation needs to be individual specific start with 1 indv
-#choose buffer of individual
+
+# We then loop through each  individual by selecting its nesting territory (buffer)
+# and relevant points 
+# We do this by first going through the process for 1 individual and then 
+#looping through remaining ones:
+#choose nesting territory (i.e.,buffer) of individual SG:
 buf <-  nest_buffer %>% dplyr::filter( territory == "SG" )
-#choose points belonging to that individual
+#choose points belonging to SG:
 bpnts <- thin_sf %>% dplyr::filter( territory == "SG" )
-#get points outside the buffer using the st_difference()
+#now only keep points that fall outside nesting territory by using
+# the st_difference() function 
 b <- st_difference( bpnts, buf )
-#create new dataframe to store results
+
+#copy resulting points to a dataframe that will store results for all 
+#individuals:
 forage.thin <- b
-#now loop through the rest of the individuals
+#now we can loop through the rest of the individuals:
+#note that we start with individual 2 here:
 for( i in terids[2:length(terids)] ){
+  #extract nesting territory buffer:
   buf <-  nest_buffer %>% dplyr::filter( territory == i )
+  #extract points for that individual
   bpnts <- thin_sf %>% dplyr::filter( territory == i )
-  #this function keeps nonoverlapping points only
+  #keep only points that fall outside nesting territory:
   b <- st_difference( bpnts, buf )
-  #append updated points to original
+  #append updated points to forage.thin dataframe
   forage.thin <- bind_rows(forage.thin, b )
 }
 
-#now filter our original thin dataset using rowids
+#view results
+head( forage.thin)
+# Note that this doesn't have the rest of attributes related to our original
+# trks dataframe
+# We reduce our original using rowids that are in common to the points 
+# we created in the loop (which ones we want to keep)
 trks.forage <- trks.thin %>% 
   dplyr::filter( rowid %in% forage.thin$rowid )
-#the burst id restarts for each individual
-# we need to create indiv specific ones
-#add counts 
+
+# to finish note that the burst id restarts for each individual
+# we need to create indiv specific ones:
 trks.forage <- trks.forage %>% 
   mutate( burstid = paste(burst_, id, sep = "_")) %>% 
   add_count( burstid )
