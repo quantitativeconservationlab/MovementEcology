@@ -109,7 +109,7 @@ trks.5sec <- trks.breed %>%
 breed_sf <- trks.5sec %>% 
   dplyr::select( territory, rowid, x_, y_ ) %>% 
   amt::as_sf_points()
-# I think the calculation needs to be individual specific
+#the calculation needs to be individual specific
 #try for 1
 buf <-  nest_buffer %>% dplyr::filter( territory == "SG" )
 bpnts <- breed_sf %>% dplyr::filter( territory == "SG" )
@@ -232,7 +232,7 @@ trks.20sec <- trks.20sec %>%
   group_by( burstid ) %>% 
   dplyr::filter( n > 9 ) %>% ungroup()
 
-#we start by joining 2min fixes for each individual with straight lines
+#we start by joining 20sec fixes for each individual with straight lines
 lines20sec <- trks.20sec %>%
   group_by( id, burstid ) %>%
   as_sf_points() %>%
@@ -247,7 +247,8 @@ for( i in unique(trks.5sec$id) ){
 ggplot() +
   theme_bw( base_size = 15 ) + 
   theme( legend.position = "none" ) +
-  geom_sf( data = as_sf_points( trks.thin ) %>% dplyr::filter( id == i ), 
+  geom_sf( data = as_sf_points( trks.thin ) %>% 
+             dplyr::filter( id == i ), 
            color = "black", size = 0.5 ) +
  # geom_sf( data = lines1min %>% 
     geom_sf( data = lines20sec %>% 
@@ -398,7 +399,7 @@ head( cover_steps20_df )
 cover_steps20_df <- cbind( steps_20df, cover_steps20 )
 dim(cover_steps20_df)
 
-colnames( cover_steps20_df)[26:28] <- c( "annual", "perennial", "shrub" )
+colnames( cover_steps20_df)[26:28] <- c(  "perennial","annual", "shrub" )
 ###########################################################
 ### Save desired results #
 #save lines 20secs

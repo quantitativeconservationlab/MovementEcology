@@ -10,7 +10,7 @@
 # tree, litter and bare ground                                   #
 # coordinate system is WGS84 EPSG:4326, spatial resolution is 30m #
 #                                                                #
-# Prairie Falcon data was thinned to 30minutes for 9 individuals #
+# Prairie Falcon data was thinned to 20 seconds for 9 individuals #
 # tracked in 2021 and uses NAD83 UTM zone 11N +                   #
 # which is the same as the NCA polygon                           #
 ###################################################################
@@ -37,10 +37,34 @@ rm( list = ls() )
 #load 30m steps estimated for all individuals and habitat 
 # variables extracted for each step
 df_steps <- read.csv( "Data/df_steps20.csv" )
+NCA_Shape <- sf::st_read("Data/BOPNCA_Boundary.shp")
+lines20sec <- read_rds( "Data/lines20sec" )
+#import akde ranges you created which includes  thinned (30min) data
+ranges <- read_rds( "Data/akde_all" )
 
 #######################################################################
 ######## preparing data ###############################################
-#view data
+#let's remind ourselves what data we are looking at
+# extract akde ranges
+akdes <- ranges %>%
+        hr_to_sf( hr_akde_all, id ) %>% 
+  dplyr::filter( what == "estimate" )
+
+#hr_isopleths( akde_all$hr_akde_all )
+ggplot(lines20sec ) +
+  theme_bw( base_size = 15 ) + 
+  theme( legend.position = "none" ) +
+  geom_sf( aes( color = as.factor(id) ),
+           linewidth = 1 ) +
+  # geom_sf(data = NCA_Shape, linewidth = 1.5,
+  #         fill=NA ) +
+  #extract isopleths for ouf model using thinned data from amt
+  geom_sf( data = akdes,
+          color = "black",
+          linewidth = 1, fill=NA ) +
+  facet_wrap( ~id)
+
+#view steps
 head( df_steps)
 #create vector of potential predictors
 prednames <- c( "annual", "perennial", "shrub" )
@@ -113,8 +137,9 @@ d2 <- mall %>%
   dplyr::summarize( 
     mean = mean( estimate ), 
     #calculate 95% CIs
-    ymin = mean - 1.96 *sd(estimate), 
-    ymax = mean + 1.96 *sd(estimate) )
+    ymin = exp(mean - 1.96 *sd(estimate)), 
+    ymax = exp(mean + 1.96 *sd(estimate) ),
+    mean = exp(mean ) )
 
 d2$x <- 1:nrow( d2 )
 
@@ -126,9 +151,11 @@ coefsall <- mall %>%
   dplyr::select( id, coef ) %>% 
   unnest( cols = c(coef) ) %>% 
   dplyr::mutate( id = factor(id),
-                 conf.low = estimate - 1.96 * std.error,
-                 conf.high = estimate + 1.96 * std.error )
-head(coefsall)
+                 #model was logistic so have to exponentiate
+                 conf.low = exp(estimate - 1.96 * std.error),
+                 conf.high = exp(estimate + 1.96 * std.error),
+                 estimate = exp(estimate) )
+tail(coefsall)
 
 #we plot individual differences 
 pall <- coefsall %>%
@@ -139,7 +166,7 @@ pall <- coefsall %>%
                         ymax = conf.high ),
       position = position_dodge( width = 0.7 ), size = 0.8 ) +
   #draw line at 0
-  geom_hline( yintercept = 0, lty = 2 ) +
+  geom_hline( yintercept = 1, lty = 2 ) +
   #start with population level averages we calculated earlier
   geom_rect( mapping = aes(xmin = x - 0.4, xmax = x + 0.4, 
                           ymin = ymin, ymax = ymax ), 
@@ -198,7 +225,7 @@ ggplot( coefs_df,aes( x = cover , y = estimate, color = id ) ) +
   geom_point() +
   geom_errorbar( aes( ymin = conf.low, 
                       ymax = conf.high ) ) +
-  geom_hline( yintercept = 0, linewidth = 1, lty = 2 ) + 
+  geom_hline( yintercept = 1, linewidth = 1, lty = 2 ) + 
   facet_wrap( ~term, scales = "free", ncol = 1 )
 
 
@@ -276,7 +303,7 @@ b <- coef( mi )
 # Modify code accordingly:
 summary(mi)
 b_log_l <- b["log_sl_"] 
-b_log_h <- b["log_sl_"] + b["perennial:log_sl_"] 
+b_log_h <- b["log_sl_"] + b["annual:log_sl_"] 
 b_sl <-  b["sl_"] 
 # Update step length distribution to the baseline when shrubs don't interact 
 # with step length:
@@ -300,7 +327,7 @@ updated_sl_l;updated_sl_h
 # individual 
 # Modify code accordingly:
 b_costa_l <- b["cos_ta_"]
-b_costa_h <- b[ "cos_ta_" ] + b["perennial:cos_ta_"]
+b_costa_h <- b[ "cos_ta_" ] + b["annual:cos_ta_"]
 #update turning angle distribution:
 updated_ta_l <- update_vonmises( mi$ta_,
                                beta_cos_ta = b_costa_l )
@@ -323,11 +350,11 @@ updated_ta_h
 # data.frame for plotting
 plot_sl <- data.frame(x = rep(NA, 100))
 
-#check step lenghts of chosen individual to choose your x
+#check step lengths of chosen individual to choose your x
 hist(df_scl[ which(df_scl$id == 2),'sl_'])
 
 # x-axis is sequence of possible step lengths
-plot_sl$x <- seq(from = 0, to = 2, length.out = 100)
+plot_sl$x <- seq(from = 0, to = 1, length.out = 100)
 
 # y-axis is the probability density under the given gamma distribution
 # For the updated distribution when habitat is low
@@ -437,8 +464,9 @@ coefs_issf2  <- miall2 %>%
   dplyr::select( id, coef ) %>% 
   unnest( cols = c(coef) ) %>% 
   dplyr::mutate( id = factor(id),
-                 conf.low = estimate - 1.96 * std.error,
-                 conf.high = estimate + 1.96 * std.error )
+                 conf.low = exp( estimate - 1.96 * std.error),
+                 conf.high = exp(estimate + 1.96 * std.error),
+                 estimate = exp(estimate))
 #view results
 coefs_issf2
 
@@ -453,13 +481,15 @@ d4 <- miall2 %>%
   dplyr::summarize( 
     mean = mean( estimate ), 
     #calculate 95% CIs
-    ymin = mean - 1.96 *sd(estimate), 
-    ymax = mean + 1.96 *sd(estimate) )
+    ymin = exp(mean - 1.96 *sd(estimate)), 
+    ymax = exp(mean + 1.96 *sd(estimate)),
+    mean = exp( mean ), )
 
 d4$x <- 1:nrow( d4 )
 
 # Plot individual differences and population averages 
 pissfs2 <- coefs_issf2 %>%
+  #dplyr::filter(id %in% 3:9 ) %>% 
   ggplot(., aes(x = term, y = estimate, 
                 group = id, col = id ) ) +
   #add individual results
@@ -467,7 +497,7 @@ pissfs2 <- coefs_issf2 %>%
                         ymax = conf.high ),
                    position = position_dodge( width = 0.7 ), size = 0.8 ) +
   #draw line at 0
-  geom_hline( yintercept = 0, lty = 2 ) +
+  geom_hline( yintercept = 1, lty = 2 ) +
   #start with population level averages we calculated earlier
   geom_rect( mapping = aes(xmin = x - 0.4, xmax = x + 0.4, 
                            ymin = ymin, ymax = ymax ), 
@@ -478,7 +508,10 @@ pissfs2 <- coefs_issf2 %>%
                data = d4, inherit.aes = FALSE, size = 1 ) +
   #Add the labels to each axis
   labs(x = "Predictors", y = "Relative Selection Strength") + 
-  theme_light()
+  theme_light() +
+  #ylim( c( 0,5)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+  
 
 pissfs2
 
@@ -491,15 +524,17 @@ coefs_df <- left_join( id_long, coefs_issf2, by = c("id", "term" ) )
 head(coefs_df)
 
 #plot resource selection strength by vegetation cover 
-ggplot( coefs_df,aes( x = cover , y = estimate, color = id ) ) +
+coefs_df %>%
+  dplyr::filter(id %in% 3:9 ) %>% 
+  ggplot( .,aes( x = cover , y = estimate, color = id ) ) +
   theme_classic( base_size = 15 ) +
   labs( x = "Mean cover (%)", 
         y = "Resource selection strength" ) +
   geom_point() +
   geom_errorbar( aes( ymin = conf.low, 
                       ymax = conf.high ) ) +
-  geom_hline( yintercept = 0, linewidth = 1, lty = 2 ) + 
-  facet_wrap( ~term, scales = "free", ncol = 1 )
+  geom_hline( yintercept = 1, linewidth = 1, lty = 2 ) + 
+  facet_wrap( ~term, scales = "free", ncol = 3 )
 
 
 ### what are the weaknesses of averaging separate individual models #
