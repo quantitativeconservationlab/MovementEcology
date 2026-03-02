@@ -139,7 +139,7 @@ hr_trans <- sf::st_transform( hr_sf, st_crs( cover_NCA ) )
 #view raster attributes
 cover_NCA
 #note that names of vegetation layers did not save so we add them:
-names(cover_NCA) <- c(  "perennial","annual", "shrub" )
+names(cover_NCA) <- c( "annual", "perennial", "shrub" )
 
 #we visualize vegetation rasters
 #tm_shape let's you select the object you want to plot
