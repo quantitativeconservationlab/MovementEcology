@@ -44,6 +44,10 @@ head( df_steps)
 head( df_scl)
 #recheck sample size:
 table( df_steps$id )
+table(df_steps$step_id_, df_steps$id)
+#create unique step id for each individual
+df_steps$id_step_id <- paste(df_steps$id, df_steps$step_id_, sep = "_" )
+df_scl$id_step_id <- paste(df_scl$id, df_scl$step_id_, sep = "_" )
 
 #########################################################################
 #######  fit movement model for all individuals in glmmTMB ############
@@ -54,7 +58,7 @@ m1 <- glmmTMB( case_ ~ 1 + annual + perennial + shrub +
                  #add movement parameters
                  sl_ + log_sl_ + cos_ta_ +
                  #define random effects
-                 ( 1| step_id_ ) +
+                 ( 1| id_step_id ) +
                  # add random slopes for habitat variables
                  ( 0 + annual | id ) +
                  ( 0 + perennial | id ) +
@@ -81,7 +85,7 @@ m2 <- glmmTMB( case_ ~ 1 +
                  log_sl_*shrub + cos_ta_*shrub +
                  #add random intercept for step id (stratum)
                  #to ensure pairing of random steps to their used step
-                 ( 1| step_id_ ) +
+                 ( 1| id_step_id ) +
                  #define random slopes for habitat
                  ( 0 + annual | id ) +
                  ( 0 + perennial | id ) +
@@ -108,7 +112,7 @@ m3 <- glmmTMB( case_ ~ 1 +
                  log_sl_*shrub + cos_ta_*shrub +
                  #add random intercept for step id (stratum)
                  #to ensure pairing of random steps to their used step
-                 ( 1| step_id_ ) +
+                 ( 1| id_step_id ) +
                  #define random slopes for habitat
                  ( 0 + annual | id ) +
                  ( 0 + perennial | id ) +
@@ -220,15 +224,15 @@ emp_d_ta
 
 # update sl distribution parameters for an individual that is most strongly selecting perennial
 #that would include the main effect log(sl_) and the interaction log(sl_):perennial term
-b_log_sl <- rss[4,"log(sl_)"] + rss[4,"log(sl_):perennial"]
-b_sl <-  rss[4,"sl_"]
+b_log_sl <- rss[3,"log(sl_)"] + rss[3,"log(sl_):perennial"]
+b_sl <-  rss[3,"sl_"]
 #update sl distribution
 updated_sl <- update_gamma( emp_d_sl,
                               beta_sl = b_sl,          
                               beta_log_sl = b_log_sl )
 #update the turning angle distribution parameters for same individual by once
 # again includingn the main effect cos(ta_) and interaction cos(ta_):perennial 
-b_costa <- rss[4, "cos(ta_)"] + rss[4,"cos(ta_):perennial"]
+b_costa <- rss[6, "cos(ta_)"] + rss[6,"cos(ta_):perennial"]
 #update turning angle distribution:
 updated_ta <- update_vonmises( emp_d_ta,
                                  beta_cos_ta = b_costa )
