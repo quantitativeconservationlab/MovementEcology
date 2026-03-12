@@ -32,96 +32,45 @@ library( circular ) #for plotting von mises distribution
 
 # Clean your workspace to reset your R environment. #
 rm( list = ls() )
-#load 30m steps estimated for all individuals 
-df_steps <- read.csv( "Data/df_steps30.csv" )
-# load 30m steps with scaled predictors
+#load 20sec steps estimated for all individuals 
+df_steps <- read.csv( "Data/df_steps20.csv" )
+# load 20sec steps with scaled predictors that we made last week
 df_scl <- read.csv( "Data/df_scl.csv" )
 
 #######################################################################
 ######## preparing data ###############################################
 #view data
 head( df_steps)
+head( df_scl)
 #recheck sample size:
 table( df_steps$id )
 
-#To check whether there is evidence of individual differences 
-#in habitat selection we could categorize the vegetation metrics for
-#plotting purposes. We create categories in a new plotting dataframe:
-df_plot <- df_steps %>% 
-  dplyr::mutate( peren_cat = ifelse( perennial < 20, "low", "high" ),
-   annual_cat = ifelse( annual < 30, "low","high" ),
-    shrub_cat = ifelse( shrub < 10, "low","high" ) )
-
-# Start by plotting differences in step lengths between low,medium
-# and high percentages of perennial herbaceous vegetation.
-#before plotting we remove missing values 
-df_plot %>% filter( !is.na(peren_cat) ) %>% 
-  ggplot( . ) +
-  theme_bw( base_size = 10 ) +
-  geom_density( aes( x = sl_, 
-                     fill = case_, group = case_ ),
-                alpha = 0.5  )  +
-  xlim( 0,20000 ) +
-  facet_wrap( id ~ peren_cat, scales = "free" )
-
-#repeat for annual
-df_plot %>% filter( !is.na(annual_cat) ) %>% 
-  ggplot( . ) +
-  theme_bw( base_size = 10 ) +
-  geom_density( aes( x = sl_, 
-          fill = case_, group = case_ ),
-                alpha = 0.5  )  +
-  xlim( 0,20000 ) +
-  facet_wrap( id ~ annual_cat, scales = "free" )
-
-#repeat for shrub
-df_plot %>% filter( !is.na(shrub_cat) ) %>% 
-  ggplot( . ) +
-  theme_bw( base_size = 10 ) +
-  geom_density( aes( x = sl_, 
-                     fill = case_, group = case_ ),
-                alpha = 0.5  )  +
-  xlim( 0,20000 ) +
-  facet_wrap( id ~ shrub_cat, scales = "free" )
-
-# How do you interpret these results?
-# Answer: 
-# 
-
-# Now we look at turning angles 
-df_plot %>% filter( !is.na(peren_cat) ) %>% 
-  ggplot( . ) +
-  theme_bw( base_size = 10 ) +
-  geom_density( aes( x = ta_, 
-                     fill = case_, group = case_ ),
-                alpha = 0.5  )  +
-  facet_wrap( id ~ peren_cat, scales = "free" )
-#repeat for annual
-df_plot %>% filter( !is.na(annual_cat) ) %>% 
-  ggplot( . ) +
-  theme_bw( base_size = 10 ) +
-  geom_density( aes( x = ta_, 
-                     fill = case_, group = case_ ),
-                alpha = 0.5  )  +
-  facet_wrap( id ~ annual_cat, scales = "free" )
-
-#repeat for shrub
-df_plot %>% filter( !is.na(shrub_cat) ) %>% 
-  ggplot( . ) +
-  theme_bw( base_size = 15 ) +
-  geom_density( aes( x = ta_, 
-                     fill = case_, group = case_ ),
-                alpha = 0.5  )  +
-  facet_wrap( id ~ shrub_cat, scales = "free" )
-
-# How do you interpret these results?
-# Answer: 
-# 
-### end visualizing prep #######
 #########################################################################
 #######  fit movement model for all individuals in glmmTMB ############
-# for all individuals firstly ignoring individual differences:
-m1 <- glmmTMB( case_ ~ 0 + 
+
+###Start with a model that allows individual differences in selection 
+#of the three habitats
+m1 <- glmmTMB( case_ ~ 1 + annual + perennial + shrub + 
+                 #add movement parameters
+                 sl_ + log_sl_ + cos_ta_ +
+                 #define random effects
+                 ( 1| step_id_ ) +
+                 # add random slopes for habitat variables
+                 ( 0 + annual | id ) +
+                 ( 0 + perennial | id ) +
+                 ( 0 + shrub | id ),
+               family = poisson, data = df_scl, 
+               #tell it not to change variance for step level
+               map = list( theta = factor( c(NA, 1:3 ) ) ),
+               #fix variance for step level random intercept
+               start = list( theta = c( log( 1e3 ),0,0,0 ) )
+) 
+#view
+summary( m1 )
+
+#now incorporate interactions between movement parameters and habitat
+# at the population level only
+m2 <- glmmTMB( case_ ~ 1 + 
                  #add habitat predictors
                  annual + perennial + shrub + 
                  #add movement parameters
@@ -138,29 +87,6 @@ m1 <- glmmTMB( case_ ~ 0 +
                  ( 0 + perennial | id ) +
                  ( 0 + shrub | id ),
                family = poisson, data = df_scl, 
-               #define weights
-               weights = weight, 
-               #tell it not to change variance for step level
-               map = list( theta = factor( c(NA, 1:3 ) ) ),
-               #fix variance for step level random intercept
-               start = list( theta = c( log( 1e3 ),0,0,0 ) )
-) 
-#view
-summary( m1 )
-
-### We compare against a simpler model that assumes no interactions
-m2 <- glmmTMB( case_ ~ 0 + annual + perennial + shrub + 
-                 #add movement parameters
-                 sl_ + log_sl_ + cos_ta_ +
-                 #define random effects
-                 ( 1| step_id_ ) +
-                 # add random slopes for habitat variables
-                 ( 0 + annual | id ) +
-                 ( 0 + perennial | id ) +
-                 ( 0 + shrub | id ),
-               family = poisson, data = df_scl, 
-               #define weights
-               weights = weight, 
                #tell it not to change variance for step level
                map = list( theta = factor( c(NA, 1:3 ) ) ),
                #fix variance for step level random intercept
@@ -169,8 +95,45 @@ m2 <- glmmTMB( case_ ~ 0 + annual + perennial + shrub +
 #view
 summary( m2 )
 
+#now incorporate interactions between movement parameters and habitat
+#at the individual level 
+m3 <- glmmTMB( case_ ~ 1 + 
+                 #add habitat predictors
+                 annual + perennial + shrub + 
+                 #add movement parameters
+                 sl_ + log_sl_ + cos_ta_ +
+                 # add movement interactions with habitat
+                 log_sl_*annual + cos_ta_*annual +
+                 log_sl_*perennial + cos_ta_*perennial +
+                 log_sl_*shrub + cos_ta_*shrub +
+                 #add random intercept for step id (stratum)
+                 #to ensure pairing of random steps to their used step
+                 ( 1| step_id_ ) +
+                 #define random slopes for habitat
+                 ( 0 + annual | id ) +
+                 ( 0 + perennial | id ) +
+                 ( 0 + shrub | id ) +
+                 ( 0 + sl_ | id ) +
+                 ( 0 + log(sl_) | id ) +
+                 ( 0 + cos(ta_) | id ) +
+                 (  0 + log(sl_):annual | id ) +
+                 (  0 + log(sl_):perennial | id ) +
+                 (  0 + log(sl_):shrub | id ) +
+                 (  0 + cos(ta_):annual | id ) +
+                 (  0 + cos(ta_):perennial | id ) +
+                 (  0 + cos(ta_):shrub | id ),
+               family = poisson, data = df_scl, 
+               #tell it not to change variance for step level
+               map = list( theta = factor( c(NA, 1:12 ) ) ),
+               #fix variance for step level random intercept
+               start = list( theta = c( log( 1e3 ), rep( 0,12 ) ) )
+) 
+#view
+summary( m3 )
+
+
 # compare models:
-anova(m1,m2)
+anova(m1,m2, m3)
 #Which model had the most support?
 # Answer:
 # 
@@ -180,11 +143,11 @@ anova(m1,m2)
 
 ################### visualizing top model results ############
 # select top model
-mr <- m2
+mr <- m3
 #pull out random effects at the id level #
 ran.efs <- ranef( mr )$cond$id
 #note that we don't want the ones at the step level
-
+ran.efs
 #pull out fixed effects
 fix.efs <- fixef( mr )$cond
 #view
@@ -194,13 +157,19 @@ fix.efs
 # and exponentiate our results
 #make sure that the random and fixed effect order match 
 rss <- ran.efs
-rss[,1 ] <- exp( rss[,1] + fix.efs[1] )
-rss[,2 ] <- exp( rss[,2] + fix.efs[2] )
-rss[,3 ] <- exp( rss[,3] + fix.efs[3] )
+# run a loop to do this
+for (i in seq_along(fix.efs)) {
+  rss[, i] <- rss[, i] + fix.efs[i+1] # i is specifying the column
+  }
+
 #create id column
 rss$id <- as.numeric(  rownames( rss ) )
 #view
 round(rss,2)
+### how do you interpret this table? which predictors vary among individuals?
+# Answer:
+
+
 # now extract additional details from our steps dataframe to combine 
 # with our results
 iddf <- df_steps %>% 
@@ -220,27 +189,10 @@ iddf <- left_join( iddf, rss, by = "id" )
 #plot results
 ggplot( iddf ) +
   theme_classic( base_size = 15 ) +
-  labs( x = "Mean annual cover (%)", 
-        y = "Resource selection strength" ) +
-  geom_point( aes( x = annual_mean , y = annual, color = sex ) ) +
-  #we add population-level average
-  geom_hline( yintercept = exp(fix.efs[1]), linewidth = 1 ) +
-  geom_hline( yintercept = 1, lty = 2 )
-
-ggplot( iddf ) +
-  theme_classic( base_size = 15 ) +
-  labs( x = "Mean perennial cover (%)", 
-        y = "Resource selection strength" ) +
-  geom_point( aes( x = perennial_mean , y = perennial, color = sex ) ) +
-  geom_hline( yintercept = exp(fix.efs[2]), linewidth = 1 ) +
-  geom_hline( yintercept = 1, lty = 2 )
-
-ggplot( iddf ) +
-  theme_classic( base_size = 15 ) +
   labs( x = "Mean shrub cover (%)", 
         y = "Resource selection strength" ) +
   geom_point( aes( x = shrub_mean , y = shrub, color = sex ) ) +
-  geom_hline( yintercept = exp(fix.efs[3] ), linewidth = 1 ) +
+  geom_hline( yintercept = fix.efs[3], linewidth = 1 ) +
   geom_hline( yintercept = 1, lty = 2 )
 
 # Could we have missinterpreted habitat selection if we had ignored
@@ -266,15 +218,17 @@ emp_d_ta <- df_scl %>%
 emp_d_sl
 emp_d_ta
 
-# update sl distribution parameters
-b_log_sl <- fix.efs[5]
-b_sl <-  fix.efs[4]
+# update sl distribution parameters for an individual that is most strongly selecting perennial
+#that would include the main effect log(sl_) and the interaction log(sl_):perennial term
+b_log_sl <- rss[4,"log(sl_)"] + rss[4,"log(sl_):perennial"]
+b_sl <-  rss[4,"sl_"]
 #update sl distribution
 updated_sl <- update_gamma( emp_d_sl,
                               beta_sl = b_sl,          
                               beta_log_sl = b_log_sl )
-#update ta distribution parameters
-b_costa <- fix.efs[6]
+#update the turning angle distribution parameters for same individual by once
+# again includingn the main effect cos(ta_) and interaction cos(ta_):perennial 
+b_costa <- rss[4, "cos(ta_)"] + rss[4,"cos(ta_):perennial"]
 #update turning angle distribution:
 updated_ta <- update_vonmises( emp_d_ta,
                                  beta_cos_ta = b_costa )
@@ -301,10 +255,10 @@ plot_sl <- data.frame(x = rep(NA, 100))
 hist(df_scl[ which(df_scl$id == 2),'sl_'])
 
 # x-axis is sequence of possible step lengths
-plot_sl$x <- seq(from = 0, to = 10, length.out = 100)
+plot_sl$x <- seq(from = 0, to = 1, length.out = 100)
 
 # y-axis is the probability density under the given gamma distribution
-# For the updated distribution when habitat is low
+# For the empirical distribution
 plot_sl$tentative <- dgamma(
   x = plot_sl$x,
   shape = emp_d_sl$params$shape,
@@ -333,6 +287,42 @@ ggplot(plot_sl, aes(x = x, y = value, color = factor(name))) +
 #How did the distribution change with model results?
 # Answer:
 #
+
+### turning angle plot ####
+# data.frame for plotting
+plot_ta <- data.frame(x = rep(NA, 100))
+# x-axis is sequence of possible step lengths
+plot_ta$x <- seq(from = -1 * pi, to = pi, length.out = 100)
+
+# add empirical population data
+plot_ta$empirical_ta <- dvonmises(
+  circular(plot_ta$x),
+  mu = emp_d_ta$params$mu,
+  kappa = emp_d_ta$params$kappa
+)
+
+#for TD
+#add empirical data
+plot_ta$updated_ta <- dvonmises(
+  circular(plot_ta$x),
+  mu    =updated_ta$params$mu,
+  kappa = updated_ta$params$kappa
+)
+
+ggplot(data = plot_ta) +
+  geom_line(  aes(x = x, y = empirical_ta), 
+             fill = "grey70", alpha = 0.5) +
+  geom_line( aes(x = x, y = updated_ta ),
+             linewidth = 1.6) +
+   xlab("Turning Angle (radians)") +
+  ylab("Probability Density") +
+  theme_classic() +
+  theme( axis.title = element_text(size = 16),axis.text  = element_text(size = 14)
+  )
+
+### for homework plot a different individual that also had strong selection (or
+#avoidance)
+# Answer:::
 
 ############### save section ######################################
 #save workspace if in progress

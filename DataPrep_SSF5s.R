@@ -399,7 +399,7 @@ head( cover_steps20_df )
 cover_steps20_df <- cbind( steps_20df, cover_steps20 )
 dim(cover_steps20_df)
 
-colnames( cover_steps20_df)[26:28] <- c(  "perennial","annual", "shrub" )
+colnames( cover_steps20_df)[26:28] <- c(  "annual","perennial","shrub" )
 ###########################################################
 ### Save desired results #
 #save lines 20secs
