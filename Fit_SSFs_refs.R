@@ -195,8 +195,8 @@ ggplot( iddf ) +
   theme_classic( base_size = 15 ) +
   labs( x = "Mean shrub cover (%)", 
         y = "Resource selection strength" ) +
-  geom_point( aes( x = shrub_mean , y = shrub, color = sex ) ) +
-  geom_hline( yintercept = fix.efs[3], linewidth = 1 ) +
+  geom_point( aes( x = shrub_mean , y = exp(shrub), color = sex ) ) +
+  geom_hline( yintercept = exp(fix.efs[3]), linewidth = 1 ) +
   geom_hline( yintercept = 1, lty = 2 )
 
 # Could we have missinterpreted habitat selection if we had ignored
