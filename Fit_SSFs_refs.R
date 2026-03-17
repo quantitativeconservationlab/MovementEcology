@@ -135,7 +135,6 @@ m3 <- glmmTMB( case_ ~ 1 +
 #view
 summary( m3 )
 
-
 # compare models:
 anova(m1,m2, m3)
 #Which model had the most support?
@@ -204,6 +203,7 @@ ggplot( iddf ) +
 # How?
 # Answer:
 #
+######################################################################
 ########### visualize the movement distributions #######
 # We calculate the tentative distributions from empirical data 
 # Start with step length fitted as a gamma with shape and scale parameters
@@ -222,30 +222,44 @@ emp_d_ta <- df_scl %>%
 emp_d_sl
 emp_d_ta
 
+# And now the mean values for each habitat:
+apply( df_steps[,c("annual", "perennial", "shrub")], 2, mean )
+apply( df_steps[,c("annual", "perennial", "shrub")], 2, sd )
+
+hist(df_steps[,'perennial'])
+hist(df_steps[,'annual'] )
+hist(df_steps[,'shrub'] )
+#we can specify the value of vegetation that we want to compare against
+# as + and - 2 SD
+
 # update sl distribution parameters for an individual that is most strongly selecting perennial
 #that would include the main effect log(sl_) and the interaction log(sl_):perennial term
-b_log_sl <- rss[3,"log(sl_)"] + rss[3,"log(sl_):perennial"]
+b_log_sl_l <- rss[3,"log(sl_)"] + rss[3,"log(sl_):perennial"] * (-2)
+b_log_sl_h <- rss[3,"log(sl_)"] + rss[3,"log(sl_):perennial"] * (2)
 b_sl <-  rss[3,"sl_"]
 #update sl distribution
-updated_sl <- update_gamma( emp_d_sl,
+updated_sl_l <- update_gamma( emp_d_sl,
                               beta_sl = b_sl,          
-                              beta_log_sl = b_log_sl )
-#update the turning angle distribution parameters for same individual by once
-# again includingn the main effect cos(ta_) and interaction cos(ta_):perennial 
-b_costa <- rss[6, "cos(ta_)"] + rss[6,"cos(ta_):perennial"]
-#update turning angle distribution:
-updated_ta <- update_vonmises( emp_d_ta,
-                                 beta_cos_ta = b_costa )
-
-# view results
-updated_sl
+                              beta_log_sl = b_log_sl_l )
+updated_sl_h <- update_gamma( emp_d_sl,
+                              beta_sl = b_sl,          
+                              beta_log_sl = b_log_sl_h )
 # Are any of the parameters negative? If so then the model is ill fitted. 
 # Tav Avgar recommends to try a different step-length distribution
 # include different interractions 
 # remove non-movement steps (based on a step-length threshold )
 # resample data to coarser resolution
 
-updated_ta
+#update the turning angle distribution parameters for same individual by once
+# again includingn the main effect cos(ta_) and interaction cos(ta_):perennial 
+b_costa_l <- rss[3, "cos(ta_)"] + rss[3,"cos(ta_):perennial"] * (-2)
+b_costa_h <- rss[3, "cos(ta_)"] + rss[3,"cos(ta_):perennial"] * (2)
+#update turning angle distribution when hab is 2SD less than mean:
+updated_ta_l <- update_vonmises( emp_d_ta,
+                                 beta_cos_ta = b_costa_l )
+#2SD more than the mean
+updated_ta_h <- update_vonmises( emp_d_ta,
+                                 beta_cos_ta = b_costa_h )
 #Is the von Mises concentration parameter (kappa) negative? #
 # If so Tal Avgar indicates that the adjusted turn angle distribution
 # is centred at pi (180) rather than 0, meaning that the animal is 
@@ -262,16 +276,16 @@ hist(df_scl[ which(df_scl$id == 2),'sl_'])
 plot_sl$x <- seq(from = 0, to = 1, length.out = 100)
 
 # y-axis is the probability density under the given gamma distribution
-# For the empirical distribution
-plot_sl$tentative <- dgamma(
+#when habitat is low
+plot_sl$updated_l <- dgamma(
   x = plot_sl$x,
-  shape = emp_d_sl$params$shape,
-  scale = emp_d_sl$params$scale)
+  shape = updated_sl_l$params$shape,
+  scale = updated_sl_l$params$scale)
 #when habitat is high
-plot_sl$updated <- dgamma(
+plot_sl$updated_h <- dgamma(
   x = plot_sl$x,
-  shape = updated_sl$params$shape,
-  scale = updated_sl$params$scale)
+  shape = updated_sl_h$params$shape,
+  scale = updated_sl_h$params$scale)
 
 # Pivot from wide data to long data
 plot_sl <- plot_sl %>% 
@@ -281,10 +295,10 @@ tail(plot_sl)
 # Plot
 ggplot(plot_sl, aes(x = x, y = value, color = factor(name))) +
   geom_line(size = 1) +
-  xlab("Step Length (m)") +
+  xlab("Step Length (km)") +
   ylab("Probability Density") +
   scale_color_manual(name = "Distribution", 
-                     breaks = c("tentative", "updated"),
+                     breaks = c("updated_l", "updated_h"),
                      values = c("blue", "orange")) +
   theme_bw()
 
@@ -298,30 +312,37 @@ plot_ta <- data.frame(x = rep(NA, 100))
 # x-axis is sequence of possible step lengths
 plot_ta$x <- seq(from = -1 * pi, to = pi, length.out = 100)
 
-# add empirical population data
-plot_ta$empirical_ta <- dvonmises(
+#update turning angle distribution when habitat is low
+plot_ta$updated_ta_l <- dvonmises(
   circular(plot_ta$x),
-  mu = emp_d_ta$params$mu,
-  kappa = emp_d_ta$params$kappa
+  mu    =updated_ta_l$params$mu,
+  kappa = updated_ta_l$params$kappa
+)
+#when habitat is high (at +2SD)
+plot_ta$updated_ta_h <- dvonmises(
+  circular(plot_ta$x),
+  mu    =updated_ta_h$params$mu,
+  kappa = updated_ta_h$params$kappa
 )
 
-#for TD
-#add empirical data
-plot_ta$updated_ta <- dvonmises(
-  circular(plot_ta$x),
-  mu    =updated_ta$params$mu,
-  kappa = updated_ta$params$kappa
-)
+# Pivot from wide data to long data
+plot_ta <- plot_ta %>% 
+  pivot_longer(cols = -x)
 
-ggplot(data = plot_ta) +
-  geom_line(  aes(x = x, y = empirical_ta), 
-             fill = "grey70", alpha = 0.5) +
-  geom_line( aes(x = x, y = updated_ta ),
-             linewidth = 1.6) +
+tail(plot_ta)
+
+#now plot results
+ggplot(data = plot_ta, aes(x = x, y = value, color = factor(name))) +
+  geom_line(linewidth =1) +
+  geom_line(linewidth =1) +
    xlab("Turning Angle (radians)") +
   ylab("Probability Density") +
+  scale_color_manual(name = "Distribution", 
+                     breaks = c("updated_ta_l", "updated_ta_h"),
+                     values = c("blue", "orange")) +
   theme_classic() +
-  theme( axis.title = element_text(size = 16),axis.text  = element_text(size = 14)
+  theme( axis.title = element_text(size = 16),
+         axis.text  = element_text(size = 14)
   )
 
 ### for homework plot a different individual that also had strong selection (or
